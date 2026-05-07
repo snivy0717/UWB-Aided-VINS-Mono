@@ -26,6 +26,10 @@ double UWB_NOISE = 0.1;
 double UWB_MAX_INTERVAL = 0.05;
 int USE_UWB_INTERPOLATION = 1;
 double UWB_INTERP_MAX_GAP = 0.2;
+int USE_UWB_FACTOR = 0;
+int UWB_WORLD_ALIGNED = 0;
+double UWB_WORLD_TO_VINS_YAW = 0.0;
+Eigen::Vector3d UWB_WORLD_TO_VINS_TRANSLATION{0.0, 0.0, 0.0};
 std::vector<Eigen::Vector3d> UWB_ANCHOR_POSITIONS;
 Eigen::Vector3d P_UWB_IMU{0.0, 0.0, 0.0};
 double ROW, COL;
@@ -65,6 +69,10 @@ void readParameters(ros::NodeHandle &n)
     UWB_MAX_INTERVAL = 0.05;
     USE_UWB_INTERPOLATION = 1;
     UWB_INTERP_MAX_GAP = 0.2;
+    USE_UWB_FACTOR = 0;
+    UWB_WORLD_ALIGNED = 0;
+    UWB_WORLD_TO_VINS_YAW = 0.0;
+    UWB_WORLD_TO_VINS_TRANSLATION.setZero();
     UWB_ANCHOR_POSITIONS.clear();
     P_UWB_IMU.setZero();
 
@@ -80,6 +88,26 @@ void readParameters(ros::NodeHandle &n)
         USE_UWB_INTERPOLATION = static_cast<int>(fsSettings["use_uwb_interpolation"]);
     if (!fsSettings["uwb_interp_max_gap"].empty())
         UWB_INTERP_MAX_GAP = static_cast<double>(fsSettings["uwb_interp_max_gap"]);
+    if (!fsSettings["use_uwb_factor"].empty())
+        USE_UWB_FACTOR = static_cast<int>(fsSettings["use_uwb_factor"]);
+    if (!fsSettings["uwb_world_aligned"].empty())
+        UWB_WORLD_ALIGNED = static_cast<int>(fsSettings["uwb_world_aligned"]);
+    if (!fsSettings["uwb_world_to_vins_yaw"].empty())
+        UWB_WORLD_TO_VINS_YAW = static_cast<double>(fsSettings["uwb_world_to_vins_yaw"]);
+    if (!fsSettings["uwb_world_to_vins_translation"].empty())
+    {
+        cv::FileNode translation = fsSettings["uwb_world_to_vins_translation"];
+        if (translation.isSeq() && translation.size() == 3)
+        {
+            UWB_WORLD_TO_VINS_TRANSLATION << static_cast<double>(translation[0]),
+                                             static_cast<double>(translation[1]),
+                                             static_cast<double>(translation[2]);
+        }
+        else
+        {
+            ROS_WARN("uwb_world_to_vins_translation should be a 3-element sequence; use zero translation");
+        }
+    }
     if (!fsSettings["p_uwb_imu"].empty())
     {
         cv::FileNode p_uwb_imu = fsSettings["p_uwb_imu"];
@@ -125,6 +153,11 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO_STREAM("UWB_TOPIC: " << UWB_TOPIC);
         ROS_INFO("UWB_NOISE: %f UWB_MAX_INTERVAL: %f", UWB_NOISE, UWB_MAX_INTERVAL);
         ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f", USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP);
+        ROS_INFO("USE_UWB_FACTOR: %d UWB_WORLD_ALIGNED: %d", USE_UWB_FACTOR, UWB_WORLD_ALIGNED);
+        ROS_INFO("UWB_WORLD_TO_VINS_YAW: %f", UWB_WORLD_TO_VINS_YAW);
+        ROS_INFO_STREAM("UWB_WORLD_TO_VINS_TRANSLATION: " << UWB_WORLD_TO_VINS_TRANSLATION.transpose());
+        if (USE_UWB_FACTOR && !UWB_WORLD_ALIGNED)
+            ROS_WARN("use_uwb_factor is enabled but uwb_world_aligned is 0; do not enable UWB range factor until anchor frame and VINS world are aligned");
         ROS_INFO_STREAM("P_UWB_IMU: " << P_UWB_IMU.transpose());
         ROS_INFO("UWB anchor count: %lu", UWB_ANCHOR_POSITIONS.size());
     }

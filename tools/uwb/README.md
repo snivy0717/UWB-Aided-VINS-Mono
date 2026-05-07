@@ -134,3 +134,44 @@ predicted_range: 3.000000000
 raw_residual: 0.000000000
 whitened_residual: 0.000000000
 ```
+
+## Before Enabling UWB Factor
+
+Current status: the UWB factor is still not added to `Estimator::optimization()`. Setting configuration values alone does not add UWB residuals or change localization results.
+
+Before enabling any future UWB range factor, confirm:
+
+- UWB timestamps use the same time base as image and IMU messages.
+- UWB anchor positions are measured accurately.
+- `p_uwb_imu` is a reasonable IMU/body-to-UWB-tag translation.
+- The UWB anchor world frame and the VINS world frame are aligned.
+
+If the anchor coordinate frame and VINS world are not aligned, do not directly use the range factor. The reserved config values `uwb_world_to_vins_yaw` and `uwb_world_to_vins_translation` are only placeholders for a later alignment workflow.
+
+Recommended sequence:
+
+1. Set `use_uwb: 1` and verify `UWB received`.
+2. Verify `UWB match` or `UWB interpolated`.
+3. Verify `Estimator UWB frame associated`.
+4. Check the residual formula with `uwb_residual_check.py`.
+5. Check configuration readiness with `uwb_config_check.py`.
+6. Only after coordinate alignment should `use_uwb_factor: 1` be considered.
+
+Config check example:
+
+```bash
+python3 tools/uwb/uwb_config_check.py \
+  --anchors 0 0 0 5 0 0 0 5 0 \
+  --p_uwb_imu 0 0 0 \
+  --uwb_world_aligned 0 \
+  --use_uwb_factor 0
+```
+
+Safe defaults:
+
+```yaml
+use_uwb_factor: 0
+uwb_world_aligned: 0
+uwb_world_to_vins_yaw: 0.0
+uwb_world_to_vins_translation: [0.0, 0.0, 0.0]
+```
