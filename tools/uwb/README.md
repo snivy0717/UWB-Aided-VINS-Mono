@@ -92,3 +92,45 @@ Estimator UWB frame associated
 ```
 
 At this stage UWB data is only loaded, aligned, and cached per frame. It is not added to backend optimization.
+
+## UWB Range Residual Model
+
+Current status: the UWB range factor model exists only as a prepared residual model. It is not added to `Estimator::optimization()`, so it does not affect VINS-Mono localization.
+
+For image/window frame `k` and UWB anchor `j`:
+
+```text
+rho_hat_kj = || p_k + R_k * p_uwb_imu - a_j ||
+r_kj = (rho_hat_kj - rho_kj) / sigma_uwb
+```
+
+where:
+
+- `p_k` is the IMU/body position in the VINS world frame.
+- `R_k` is the IMU/body orientation in the VINS world frame.
+- `p_uwb_imu` is the known translation from IMU/body to the UWB tag.
+- `a_j` is the anchor position.
+- `rho_kj` is the aligned measured UWB range.
+- `sigma_uwb` is the UWB range standard deviation.
+
+`a_j`, `p_uwb_imu`, and the VINS world pose must be expressed in a consistent coordinate system before enabling any future range factor. If the anchor map frame and VINS world frame are not aligned, the range factor must not be enabled directly. Real-data experiments need a coordinate-frame alignment step first.
+
+Independent formula check:
+
+```bash
+python3 tools/uwb/uwb_residual_check.py \
+  --pose_px 0 --pose_py 0 --pose_pz 0 \
+  --pose_qx 0 --pose_qy 0 --pose_qz 0 --pose_qw 1 \
+  --p_uwb_imu 0 0 0 \
+  --anchor 3 0 0 \
+  --range 3 \
+  --sigma 0.1
+```
+
+Expected result:
+
+```text
+predicted_range: 3.000000000
+raw_residual: 0.000000000
+whitened_residual: 0.000000000
+```
