@@ -332,6 +332,7 @@ void process()
             if (USE_UWB)
             {
                 const double image_timestamp = img_msg->header.stamp.toSec();
+                std::vector<UWBMeasurement> aligned_uwb_measurements;
                 ROS_DEBUG_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
                                    image_timestamp, USE_UWB,
                                    static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
@@ -340,6 +341,7 @@ void process()
                     std::vector<UWBMeasurement> interpolated_measurements;
                     if (uwb_manager.getInterpolatedMeasurementsAt(image_timestamp, interpolated_measurements))
                     {
+                        aligned_uwb_measurements = interpolated_measurements;
                         for (const auto &uwb : interpolated_measurements)
                         {
                             ROS_INFO_THROTTLE(1.0, "UWB interpolated image_t: %.9f anchor_id: %d range: %.3f method: linear",
@@ -358,6 +360,7 @@ void process()
                     const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
                     if (!uwb_measurements.empty())
                     {
+                        aligned_uwb_measurements = uwb_measurements;
                         for (const auto &uwb : uwb_measurements)
                         {
                             ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
@@ -383,6 +386,8 @@ void process()
                         }
                     }
                 }
+                if (!aligned_uwb_measurements.empty())
+                    estimator.inputUWB(image_timestamp, aligned_uwb_measurements);
             }
             estimator.processImage(image, img_msg->header);
 

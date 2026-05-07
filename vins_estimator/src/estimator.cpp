@@ -31,6 +31,8 @@ void Estimator::clearState()
         dt_buf[i].clear();
         linear_acceleration_buf[i].clear();
         angular_velocity_buf[i].clear();
+        uwb_frame_measurements[i].timestamp = 0.0;
+        uwb_frame_measurements[i].measurements.clear();
 
         if (pre_integrations[i] != nullptr)
             delete pre_integrations[i];
@@ -60,6 +62,7 @@ void Estimator::clearState()
     solver_flag = INITIAL;
     initial_timestamp = 0;
     all_image_frame.clear();
+    pending_uwb_frames.clear();
     td = TD;
 
 
@@ -117,6 +120,17 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
     gyr_0 = angular_velocity;
 }
 
+void Estimator::inputUWB(double timestamp, const std::vector<UWBMeasurement> &measurements)
+{
+    if (measurements.empty())
+        return;
+
+    UWBFrameMeasurement frame_measurement;
+    frame_measurement.timestamp = timestamp;
+    frame_measurement.measurements = measurements;
+    pending_uwb_frames[timestamp] = frame_measurement;
+}
+
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
     ROS_DEBUG("new image coming ------------------------------------------");
@@ -131,6 +145,18 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ROS_DEBUG("Solving %d", frame_count);
     ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
     Headers[frame_count] = header;
+    uwb_frame_measurements[frame_count].timestamp = header.stamp.toSec();
+    uwb_frame_measurements[frame_count].measurements.clear();
+    auto uwb_it = pending_uwb_frames.find(header.stamp.toSec());
+    if (uwb_it != pending_uwb_frames.end())
+    {
+        uwb_frame_measurements[frame_count] = uwb_it->second;
+        pending_uwb_frames.erase(uwb_it);
+        ROS_INFO_THROTTLE(1.0, "Estimator UWB frame associated t: %.9f count: %lu frame_count: %d",
+                          header.stamp.toSec(),
+                          static_cast<unsigned long>(uwb_frame_measurements[frame_count].measurements.size()),
+                          frame_count);
+    }
 
     ImageFrame imageframe(image, header.stamp.toSec());
     imageframe.pre_integration = tmp_pre_integration;
@@ -1021,6 +1047,7 @@ void Estimator::slideWindow()
                 dt_buf[i].swap(dt_buf[i + 1]);
                 linear_acceleration_buf[i].swap(linear_acceleration_buf[i + 1]);
                 angular_velocity_buf[i].swap(angular_velocity_buf[i + 1]);
+                std::swap(uwb_frame_measurements[i], uwb_frame_measurements[i + 1]);
 
                 Headers[i] = Headers[i + 1];
                 Ps[i].swap(Ps[i + 1]);
@@ -1041,6 +1068,8 @@ void Estimator::slideWindow()
             dt_buf[WINDOW_SIZE].clear();
             linear_acceleration_buf[WINDOW_SIZE].clear();
             angular_velocity_buf[WINDOW_SIZE].clear();
+            uwb_frame_measurements[WINDOW_SIZE].timestamp = 0.0;
+            uwb_frame_measurements[WINDOW_SIZE].measurements.clear();
 
             if (true || solver_flag == INITIAL)
             {
@@ -1081,6 +1110,7 @@ void Estimator::slideWindow()
             }
 
             Headers[frame_count - 1] = Headers[frame_count];
+            uwb_frame_measurements[frame_count - 1] = uwb_frame_measurements[frame_count];
             Ps[frame_count - 1] = Ps[frame_count];
             Vs[frame_count - 1] = Vs[frame_count];
             Rs[frame_count - 1] = Rs[frame_count];
@@ -1093,6 +1123,8 @@ void Estimator::slideWindow()
             dt_buf[WINDOW_SIZE].clear();
             linear_acceleration_buf[WINDOW_SIZE].clear();
             angular_velocity_buf[WINDOW_SIZE].clear();
+            uwb_frame_measurements[WINDOW_SIZE].timestamp = 0.0;
+            uwb_frame_measurements[WINDOW_SIZE].measurements.clear();
 
             slideWindowNew();
         }
@@ -1144,4 +1176,3 @@ void Estimator::setReloFrame(double _frame_stamp, int _frame_index, vector<Vecto
         }
     }
 }
-

@@ -17,11 +17,17 @@
 #include "factor/projection_factor.h"
 #include "factor/projection_td_factor.h"
 #include "factor/marginalization_factor.h"
+#include "uwb/uwb_manager.h"
 
 #include <unordered_map>
 #include <queue>
 #include <opencv2/core/eigen.hpp>
 
+struct UWBFrameMeasurement
+{
+    double timestamp = 0.0;
+    std::vector<UWBMeasurement> measurements;
+};
 
 class Estimator
 {
@@ -32,6 +38,7 @@ class Estimator
 
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
+    void inputUWB(double timestamp, const std::vector<UWBMeasurement> &measurements);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
@@ -84,6 +91,7 @@ class Estimator
 
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;
+    UWBFrameMeasurement uwb_frame_measurements[(WINDOW_SIZE + 1)];
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];
@@ -120,6 +128,7 @@ class Estimator
     vector<double *> last_marginalization_parameter_blocks;
 
     map<double, ImageFrame> all_image_frame;
+    map<double, UWBFrameMeasurement> pending_uwb_frames;
     IntegrationBase *tmp_pre_integration;
 
     //relocalization variable
