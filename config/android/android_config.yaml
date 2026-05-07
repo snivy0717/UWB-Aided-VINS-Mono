@@ -9,8 +9,8 @@ output_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/2026_04_26_12_
 use_uwb: 1
 uwb_topic: "/uwb/range"
 uwb_noise: 0.1
-uwb_max_interval: 0.05
-use_uwb_interpolation: 1
+uwb_max_interval: 0.3
+use_uwb_interpolation: 0
 uwb_interp_max_gap: 0.3
 uwb_anchor_positions:
   - [0.0, 0.0, 0.0]
