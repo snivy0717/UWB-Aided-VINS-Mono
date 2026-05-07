@@ -83,7 +83,7 @@ rostopic echo /uwb/range
 
 ## Validate in VINS-Mono
 
-Set `use_uwb: 1` in the active VINS-Mono YAML config, then run `vins_estimator` and play the bag. The estimator terminal should show:
+Set `uwb_fusion_mode: 1` in the active VINS-Mono YAML config, then run `vins_estimator` and play the bag. The estimator terminal should show:
 
 ```text
 UWB received
@@ -92,6 +92,30 @@ Estimator UWB frame associated
 ```
 
 At this stage UWB data is only loaded, aligned, and cached per frame. It is not added to backend optimization.
+
+## UWB Fusion Mode
+
+Use `uwb_fusion_mode` as the recommended high-level switch:
+
+```yaml
+uwb_fusion_mode: 0
+```
+
+Modes:
+
+- `0`: UWB disabled. Original VINS-Mono behavior.
+- `1`: UWB correction debug mode, close to UVINS' external correction idea. It computes and prints `dP` but does not apply it.
+- `2`: UWB range factor mode, reserved for tighter backend fusion. The current project has not connected `UWBRangeFactor` to `Estimator::optimization()` yet.
+
+The older fields `use_uwb`, `use_uwb_correction`, and `use_uwb_factor` remain as internal compatibility/debug switches, but `uwb_fusion_mode` derives the effective mode:
+
+```text
+mode 0 -> USE_UWB=0, USE_UWB_CORRECTION=0, USE_UWB_FACTOR=0
+mode 1 -> USE_UWB=1, USE_UWB_CORRECTION=1, USE_UWB_FACTOR=0
+mode 2 -> USE_UWB=1, USE_UWB_CORRECTION=0, USE_UWB_FACTOR=1
+```
+
+Mode `2` also requires `uwb_world_aligned: 1`; otherwise the estimator prints a warning.
 
 ## UWB Range Residual Model
 
@@ -150,7 +174,7 @@ If the anchor coordinate frame and VINS world are not aligned, do not directly u
 
 Recommended sequence:
 
-1. Set `use_uwb: 1` and verify `UWB received`.
+1. Set `uwb_fusion_mode: 1` and verify `UWB received`.
 2. Verify `UWB match` or `UWB interpolated`.
 3. Verify `Estimator UWB frame associated`.
 4. Check the residual formula with `uwb_residual_check.py`.
@@ -200,10 +224,8 @@ This requires real anchor coordinates, a reasonable UWB-tag extrinsic, and an al
 Recommended debug configuration:
 
 ```yaml
-use_uwb: 1
-use_uwb_correction: 1
+uwb_fusion_mode: 1
 uwb_correction_debug_only: 1
-use_uwb_factor: 0
 ```
 
 The estimator terminal should print:

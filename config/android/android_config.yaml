@@ -6,6 +6,12 @@ image_topic: "/cam0/image_raw"
 output_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/2026_04_26_12_40_42/uwb"
 
 # UWB parameters
+# Recommended unified mode:
+# 0: off, original VINS-Mono
+# 1: UWB correction debug, external correction idea, debug only
+# 2: UWB range factor mode, reserved; factor is not connected to optimization yet
+uwb_fusion_mode: 0
+# Compatibility/debug switches below are derived from uwb_fusion_mode.
 use_uwb: 0
 uwb_topic: "/uwb/range"
 uwb_noise: 0.1

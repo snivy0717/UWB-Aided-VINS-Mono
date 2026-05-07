@@ -20,6 +20,7 @@ int ROLLING_SHUTTER;
 std::string EX_CALIB_RESULT_PATH;
 std::string VINS_RESULT_PATH;
 std::string IMU_TOPIC;
+int UWB_FUSION_MODE = 0;
 int USE_UWB = 0;
 std::string UWB_TOPIC = "/uwb/range";
 double UWB_NOISE = 0.1;
@@ -67,6 +68,7 @@ void readParameters(ros::NodeHandle &n)
 
     fsSettings["imu_topic"] >> IMU_TOPIC;
 
+    UWB_FUSION_MODE = 0;
     USE_UWB = 0;
     UWB_TOPIC = "/uwb/range";
     UWB_NOISE = 0.1;
@@ -84,6 +86,8 @@ void readParameters(ros::NodeHandle &n)
     UWB_ANCHOR_POSITIONS.clear();
     P_UWB_IMU.setZero();
 
+    if (!fsSettings["uwb_fusion_mode"].empty())
+        UWB_FUSION_MODE = static_cast<int>(fsSettings["uwb_fusion_mode"]);
     if (!fsSettings["use_uwb"].empty())
         USE_UWB = static_cast<int>(fsSettings["use_uwb"]);
     if (!fsSettings["uwb_topic"].empty())
@@ -163,6 +167,36 @@ void readParameters(ros::NodeHandle &n)
             ROS_WARN("uwb_anchor_positions should be a sequence of [x, y, z]");
         }
     }
+    if (UWB_FUSION_MODE == 0)
+    {
+        USE_UWB = 0;
+        USE_UWB_CORRECTION = 0;
+        USE_UWB_FACTOR = 0;
+    }
+    else if (UWB_FUSION_MODE == 1)
+    {
+        USE_UWB = 1;
+        USE_UWB_CORRECTION = 1;
+        USE_UWB_FACTOR = 0;
+    }
+    else if (UWB_FUSION_MODE == 2)
+    {
+        USE_UWB = 1;
+        USE_UWB_CORRECTION = 0;
+        USE_UWB_FACTOR = 1;
+        if (!UWB_WORLD_ALIGNED)
+            ROS_WARN("UWB fusion mode 2 requires coordinate alignment. Do not enable range factor before uwb_world_aligned=1.");
+        ROS_WARN("UWB range factor mode is selected, but current project has not connected UWBRangeFactor to Estimator::optimization() yet.");
+    }
+    else
+    {
+        ROS_WARN("Unknown uwb_fusion_mode %d; fallback to mode 0, original VINS-Mono", UWB_FUSION_MODE);
+        UWB_FUSION_MODE = 0;
+        USE_UWB = 0;
+        USE_UWB_CORRECTION = 0;
+        USE_UWB_FACTOR = 0;
+    }
+    ROS_INFO("UWB_FUSION_MODE: %d", UWB_FUSION_MODE);
     ROS_INFO("USE_UWB: %d", USE_UWB);
     if (USE_UWB)
     {

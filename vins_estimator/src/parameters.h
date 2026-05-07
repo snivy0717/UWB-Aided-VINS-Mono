@@ -32,6 +32,7 @@ extern int NUM_ITERATIONS;
 extern std::string EX_CALIB_RESULT_PATH;
 extern std::string VINS_RESULT_PATH;
 extern std::string IMU_TOPIC;
+extern int UWB_FUSION_MODE;
 extern int USE_UWB;
 extern std::string UWB_TOPIC;
 extern double UWB_NOISE;
