@@ -17,10 +17,12 @@ class UWBManager
 {
   public:
     void setMaxInterval(double max_interval);
+    void setInterpolationMaxGap(double max_gap);
     void setBufferDuration(double buffer_duration);
     void clear();
     void addMeasurement(const UWBMeasurement &measurement);
     std::vector<UWBMeasurement> getMeasurementsNear(double timestamp) const;
+    bool getInterpolatedMeasurementsAt(double timestamp, std::vector<UWBMeasurement> &measurements) const;
     size_t size() const;
     bool getNearestMeasurement(double timestamp, UWBMeasurement &measurement, double &dt) const;
 
@@ -30,5 +32,6 @@ class UWBManager
     mutable std::mutex mutex_;
     std::deque<UWBMeasurement> buffer_;
     double max_interval_ = 0.05;
+    double interpolation_max_gap_ = 0.2;
     double buffer_duration_ = 5.0;
 };

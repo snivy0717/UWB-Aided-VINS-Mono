@@ -24,6 +24,8 @@ int USE_UWB = 0;
 std::string UWB_TOPIC = "/uwb/range";
 double UWB_NOISE = 0.1;
 double UWB_MAX_INTERVAL = 0.05;
+int USE_UWB_INTERPOLATION = 1;
+double UWB_INTERP_MAX_GAP = 0.2;
 std::vector<Eigen::Vector3d> UWB_ANCHOR_POSITIONS;
 Eigen::Vector3d P_UWB_IMU{0.0, 0.0, 0.0};
 double ROW, COL;
@@ -61,6 +63,8 @@ void readParameters(ros::NodeHandle &n)
     UWB_TOPIC = "/uwb/range";
     UWB_NOISE = 0.1;
     UWB_MAX_INTERVAL = 0.05;
+    USE_UWB_INTERPOLATION = 1;
+    UWB_INTERP_MAX_GAP = 0.2;
     UWB_ANCHOR_POSITIONS.clear();
     P_UWB_IMU.setZero();
 
@@ -72,6 +76,10 @@ void readParameters(ros::NodeHandle &n)
         UWB_NOISE = static_cast<double>(fsSettings["uwb_noise"]);
     if (!fsSettings["uwb_max_interval"].empty())
         UWB_MAX_INTERVAL = static_cast<double>(fsSettings["uwb_max_interval"]);
+    if (!fsSettings["use_uwb_interpolation"].empty())
+        USE_UWB_INTERPOLATION = static_cast<int>(fsSettings["use_uwb_interpolation"]);
+    if (!fsSettings["uwb_interp_max_gap"].empty())
+        UWB_INTERP_MAX_GAP = static_cast<double>(fsSettings["uwb_interp_max_gap"]);
     if (!fsSettings["p_uwb_imu"].empty())
     {
         cv::FileNode p_uwb_imu = fsSettings["p_uwb_imu"];
@@ -116,6 +124,7 @@ void readParameters(ros::NodeHandle &n)
     {
         ROS_INFO_STREAM("UWB_TOPIC: " << UWB_TOPIC);
         ROS_INFO("UWB_NOISE: %f UWB_MAX_INTERVAL: %f", UWB_NOISE, UWB_MAX_INTERVAL);
+        ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f", USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP);
         ROS_INFO_STREAM("P_UWB_IMU: " << P_UWB_IMU.transpose());
         ROS_INFO("UWB anchor count: %lu", UWB_ANCHOR_POSITIONS.size());
     }

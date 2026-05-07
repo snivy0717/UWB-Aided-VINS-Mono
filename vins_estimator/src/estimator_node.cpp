@@ -335,31 +335,52 @@ void process()
                 ROS_DEBUG_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
                                    image_timestamp, USE_UWB,
                                    static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
-                const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
-                if (!uwb_measurements.empty())
+                if (USE_UWB_INTERPOLATION)
                 {
-                    for (const auto &uwb : uwb_measurements)
+                    std::vector<UWBMeasurement> interpolated_measurements;
+                    if (uwb_manager.getInterpolatedMeasurementsAt(image_timestamp, interpolated_measurements))
                     {
-                        ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
-                                          image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
-                                          uwb.anchor_id, uwb.range);
+                        for (const auto &uwb : interpolated_measurements)
+                        {
+                            ROS_INFO_THROTTLE(1.0, "UWB interpolated image_t: %.9f anchor_id: %d range: %.3f method: linear",
+                                              image_timestamp, uwb.anchor_id, uwb.range);
+                        }
+                    }
+                    else
+                    {
+                        ROS_DEBUG_THROTTLE(1.0, "No UWB interpolation image_t: %.9f buffer_size: %lu interp_max_gap: %.3f use_interpolation: %d",
+                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                           UWB_INTERP_MAX_GAP, USE_UWB_INTERPOLATION);
                     }
                 }
                 else
                 {
-                    UWBMeasurement nearest_uwb;
-                    double nearest_dt = 0.0;
-                    if (uwb_manager.getNearestMeasurement(image_timestamp, nearest_uwb, nearest_dt))
+                    const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
+                    if (!uwb_measurements.empty())
                     {
-                        ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
-                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                           nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
+                        for (const auto &uwb : uwb_measurements)
+                        {
+                            ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
+                                              image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
+                                              uwb.anchor_id, uwb.range);
+                        }
                     }
                     else
                     {
-                        ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
-                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                           UWB_MAX_INTERVAL);
+                        UWBMeasurement nearest_uwb;
+                        double nearest_dt = 0.0;
+                        if (uwb_manager.getNearestMeasurement(image_timestamp, nearest_uwb, nearest_dt))
+                        {
+                            ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
+                                               image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                               nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
+                        }
+                        else
+                        {
+                            ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
+                                               image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                               UWB_MAX_INTERVAL);
+                        }
                     }
                 }
             }
@@ -412,6 +433,7 @@ int main(int argc, char **argv)
     if (USE_UWB)
     {
         uwb_manager.setMaxInterval(UWB_MAX_INTERVAL);
+        uwb_manager.setInterpolationMaxGap(UWB_INTERP_MAX_GAP);
         sub_uwb = n.subscribe(UWB_TOPIC, 2000, uwb_callback);
         ROS_INFO_STREAM("subscribe UWB topic: " << UWB_TOPIC);
     }

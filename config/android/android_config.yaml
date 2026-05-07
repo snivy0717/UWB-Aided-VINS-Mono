@@ -10,6 +10,8 @@ use_uwb: 0
 uwb_topic: "/uwb/range"
 uwb_noise: 0.1
 uwb_max_interval: 0.05
+use_uwb_interpolation: 1
+uwb_interp_max_gap: 0.2
 uwb_anchor_positions:
   - [0.0, 0.0, 0.0]
   - [5.0, 0.0, 0.0]

@@ -36,6 +36,8 @@ extern int USE_UWB;
 extern std::string UWB_TOPIC;
 extern double UWB_NOISE;
 extern double UWB_MAX_INTERVAL;
+extern int USE_UWB_INTERPOLATION;
+extern double UWB_INTERP_MAX_GAP;
 extern std::vector<Eigen::Vector3d> UWB_ANCHOR_POSITIONS;
 extern Eigen::Vector3d P_UWB_IMU;
 extern double TD;
