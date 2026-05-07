@@ -175,3 +175,41 @@ uwb_world_aligned: 0
 uwb_world_to_vins_yaw: 0.0
 uwb_world_to_vins_translation: [0.0, 0.0, 0.0]
 ```
+
+## UWB Correction Mode
+
+UWB correction mode is a debug-only path inspired by UVINS' external drift-correction idea. It estimates a translation correction `dP` from the current VIO pose and the UWB ranges associated with the current frame.
+
+Current status:
+
+- `dP` is computed and printed only.
+- `dP` is not added to `Ps`, `Rs`, `Vs`, or any estimator state.
+- No Ceres residual block is added.
+- `Estimator::optimization()` is unchanged.
+
+The linearized correction model uses:
+
+```text
+tag_position = p_vio + R_vio * p_uwb_imu
+residual_j = || tag_position - anchor_j || - range_j
+u_j^T dP ~= -residual_j
+```
+
+This requires real anchor coordinates, a reasonable UWB-tag extrinsic, and an aligned UWB/VINS world frame. Do not use it to modify VINS-Mono output before validating those assumptions on real data.
+
+Recommended debug configuration:
+
+```yaml
+use_uwb: 1
+use_uwb_correction: 1
+uwb_correction_debug_only: 1
+use_uwb_factor: 0
+```
+
+The estimator terminal should print:
+
+```text
+UWB correction debug
+```
+
+If `uwb_correction_debug_only: 0`, the code prints a warning. This project currently still does not apply `dP` to the estimator state.

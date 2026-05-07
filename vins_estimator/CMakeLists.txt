@@ -59,6 +59,7 @@ add_executable(vins_estimator
     src/utility/visualization.cpp
     src/utility/CameraPoseVisualization.cpp
     src/uwb/uwb_manager.cpp
+    src/uwb/uwb_correction.cpp
     src/initial/solve_5pts.cpp
     src/initial/initial_aligment.cpp
     src/initial/initial_sfm.cpp
@@ -68,4 +69,3 @@ add_executable(vins_estimator
 add_dependencies(vins_estimator ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 target_link_libraries(vins_estimator ${catkin_LIBRARIES} ${OpenCV_LIBS} ${CERES_LIBRARIES}) 
-

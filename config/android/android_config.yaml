@@ -13,6 +13,10 @@ uwb_max_interval: 0.05
 use_uwb_interpolation: 1
 uwb_interp_max_gap: 0.2
 use_uwb_factor: 0
+use_uwb_correction: 0
+uwb_correction_debug_only: 1
+uwb_correction_min_anchors: 3
+uwb_correction_max_norm: 2.0
 uwb_anchor_positions:
   - [0.0, 0.0, 0.0]
   - [5.0, 0.0, 0.0]

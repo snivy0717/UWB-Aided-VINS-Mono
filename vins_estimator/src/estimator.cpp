@@ -156,6 +156,27 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                           header.stamp.toSec(),
                           static_cast<unsigned long>(uwb_frame_measurements[frame_count].measurements.size()),
                           frame_count);
+        if (USE_UWB_CORRECTION)
+        {
+            UWBCorrectionResult correction = UWBCorrection::computePositionCorrection(
+                Ps[frame_count],
+                Rs[frame_count],
+                P_UWB_IMU,
+                UWB_ANCHOR_POSITIONS,
+                uwb_frame_measurements[frame_count].measurements,
+                UWB_NOISE,
+                UWB_CORRECTION_MIN_ANCHORS,
+                UWB_CORRECTION_MAX_NORM);
+            if (!correction.valid && correction.correction_norm > UWB_CORRECTION_MAX_NORM)
+                ROS_WARN_THROTTLE(1.0, "UWB correction dP norm %.3f exceeds max %.3f; debug only, not applied",
+                                  correction.correction_norm, UWB_CORRECTION_MAX_NORM);
+            ROS_INFO_THROTTLE(1.0,
+                              "UWB correction debug t: %.9f valid: %d dP: %.4f %.4f %.4f norm: %.4f anchors: %d mean_abs_residual: %.4f",
+                              header.stamp.toSec(), correction.valid ? 1 : 0,
+                              correction.dP.x(), correction.dP.y(), correction.dP.z(),
+                              correction.correction_norm, correction.used_anchor_count,
+                              correction.mean_abs_residual);
+        }
     }
 
     ImageFrame imageframe(image, header.stamp.toSec());

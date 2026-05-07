@@ -17,6 +17,7 @@
 #include "factor/projection_factor.h"
 #include "factor/projection_td_factor.h"
 #include "factor/marginalization_factor.h"
+#include "uwb/uwb_correction.h"
 #include "uwb/uwb_manager.h"
 
 #include <unordered_map>

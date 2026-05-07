@@ -27,6 +27,10 @@ double UWB_MAX_INTERVAL = 0.05;
 int USE_UWB_INTERPOLATION = 1;
 double UWB_INTERP_MAX_GAP = 0.2;
 int USE_UWB_FACTOR = 0;
+int USE_UWB_CORRECTION = 0;
+int UWB_CORRECTION_DEBUG_ONLY = 1;
+int UWB_CORRECTION_MIN_ANCHORS = 3;
+double UWB_CORRECTION_MAX_NORM = 2.0;
 int UWB_WORLD_ALIGNED = 0;
 double UWB_WORLD_TO_VINS_YAW = 0.0;
 Eigen::Vector3d UWB_WORLD_TO_VINS_TRANSLATION{0.0, 0.0, 0.0};
@@ -70,6 +74,10 @@ void readParameters(ros::NodeHandle &n)
     USE_UWB_INTERPOLATION = 1;
     UWB_INTERP_MAX_GAP = 0.2;
     USE_UWB_FACTOR = 0;
+    USE_UWB_CORRECTION = 0;
+    UWB_CORRECTION_DEBUG_ONLY = 1;
+    UWB_CORRECTION_MIN_ANCHORS = 3;
+    UWB_CORRECTION_MAX_NORM = 2.0;
     UWB_WORLD_ALIGNED = 0;
     UWB_WORLD_TO_VINS_YAW = 0.0;
     UWB_WORLD_TO_VINS_TRANSLATION.setZero();
@@ -90,6 +98,14 @@ void readParameters(ros::NodeHandle &n)
         UWB_INTERP_MAX_GAP = static_cast<double>(fsSettings["uwb_interp_max_gap"]);
     if (!fsSettings["use_uwb_factor"].empty())
         USE_UWB_FACTOR = static_cast<int>(fsSettings["use_uwb_factor"]);
+    if (!fsSettings["use_uwb_correction"].empty())
+        USE_UWB_CORRECTION = static_cast<int>(fsSettings["use_uwb_correction"]);
+    if (!fsSettings["uwb_correction_debug_only"].empty())
+        UWB_CORRECTION_DEBUG_ONLY = static_cast<int>(fsSettings["uwb_correction_debug_only"]);
+    if (!fsSettings["uwb_correction_min_anchors"].empty())
+        UWB_CORRECTION_MIN_ANCHORS = static_cast<int>(fsSettings["uwb_correction_min_anchors"]);
+    if (!fsSettings["uwb_correction_max_norm"].empty())
+        UWB_CORRECTION_MAX_NORM = static_cast<double>(fsSettings["uwb_correction_max_norm"]);
     if (!fsSettings["uwb_world_aligned"].empty())
         UWB_WORLD_ALIGNED = static_cast<int>(fsSettings["uwb_world_aligned"]);
     if (!fsSettings["uwb_world_to_vins_yaw"].empty())
@@ -154,6 +170,10 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO("UWB_NOISE: %f UWB_MAX_INTERVAL: %f", UWB_NOISE, UWB_MAX_INTERVAL);
         ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f", USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP);
         ROS_INFO("USE_UWB_FACTOR: %d UWB_WORLD_ALIGNED: %d", USE_UWB_FACTOR, UWB_WORLD_ALIGNED);
+        ROS_INFO("USE_UWB_CORRECTION: %d UWB_CORRECTION_DEBUG_ONLY: %d", USE_UWB_CORRECTION, UWB_CORRECTION_DEBUG_ONLY);
+        ROS_INFO("UWB_CORRECTION_MIN_ANCHORS: %d UWB_CORRECTION_MAX_NORM: %f", UWB_CORRECTION_MIN_ANCHORS, UWB_CORRECTION_MAX_NORM);
+        if (USE_UWB_CORRECTION && !UWB_CORRECTION_DEBUG_ONLY)
+            ROS_WARN("use_uwb_correction is enabled with debug_only=0; applying correction is not recommended before real-data and coordinate-frame validation");
         ROS_INFO("UWB_WORLD_TO_VINS_YAW: %f", UWB_WORLD_TO_VINS_YAW);
         ROS_INFO_STREAM("UWB_WORLD_TO_VINS_TRANSLATION: " << UWB_WORLD_TO_VINS_TRANSLATION.transpose());
         if (USE_UWB_FACTOR && !UWB_WORLD_ALIGNED)
