@@ -1,0 +1,79 @@
+%YAML:1.0
+
+#common parameters
+imu_topic: "/imu0"
+image_topic: "/cam0/image_raw"
+output_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/cycle1/"
+
+#camera calibration
+model_type: PINHOLE
+camera_name: camera
+image_width: 640
+image_height: 480
+distortion_parameters:
+   k1: 0.014682597467897445
+   k2: 0.2227890568965792
+   p1: 0.0007936120403042855
+   p2: 0.004674328253990299
+projection_parameters:
+   fx: 506.59450306643043
+   fy: 507.3989823993469
+   cx: 327.5132085290396
+   cy: 238.1764968281269
+
+# Extrinsic parameter between IMU and Camera.
+estimate_extrinsic: 2
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [-0.0038629257078134534, -0.9999541881260321, 0.008757822456861158,
+          -0.9999922298462609, 0.003869661544603869, 0.00075230754020444,
+          -0.0007861628843620046, -0.008754848299097003, -0.9999613665433186]
+
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [-0.0223424012436389,
+           0.010443621540258479,
+          -0.00003631638656165076]
+
+#feature tracker parameters
+max_cnt: 150
+min_dist: 20
+freq: 0
+F_threshold: 3.0
+show_track: 1
+equalize: 1
+fisheye: 0
+
+#optimization parameters
+max_solver_time: 0.04
+max_num_iterations: 8
+keyframe_parallax: 10.0
+
+#imu parameters
+acc_n: 8.9396e-03
+gyr_n: 4.0695e-03
+acc_w: 2.2498e-03
+gyr_w: 1.1090e-05
+
+#loop closure parameters
+loop_closure: 0
+load_previous_pose_graph: 0
+fast_relocalization: 0
+pose_graph_save_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/pose_graph/"
+
+#unsynchronization parameters
+estimate_td: 1
+td: 0.0017508760941555021
+
+#rolling shutter parameters
+rolling_shutter: 0
+rolling_shutter_tr: 0
+
+#visualization parameters
+save_image: 0
+visualize_imu_forward: 0
+visualize_camera_size: 0.4

@@ -1,0 +1,101 @@
+%YAML:1.0
+# visensor_left_f9p_config_mate40_fanxiaopeng_hengxiang
+
+#1 common parameters
+imu_topic: "/imu0"
+image_topic: "/cam1/image_raw"
+output_dir: "~/output/"
+
+#2 camera calibration # PINHOLE
+camera_name: camera
+model_type: PINHOLE
+image_width: 640
+image_height: 480
+
+distortion_parameters:
+   k1: 0.014682597467897445 
+   k2: 0.2227890568965792
+   p1: 0.0007936120403042855
+   p2: 0.004674328253990299
+projection_parameters:
+   fx: 506.59450306643043 
+   fy: 507.3989823993469
+   cx: 327.5132085290396
+   cy: 238.1764968281269
+
+#4 Extrinsic parameter between IMU and Camera.
+estimate_extrinsic: 0   # 0  Have an accurate extrinsic parameters. We will trust the following imu^R_cam, imu^T_cam don't change it.
+                        # 1  Have an initial guess about extrinsic parameters. We will optimize around your initial guess.
+                        # 2  Don't know anything about extrinsic parameters. You don't need to give R,T. We will try to calibrate it. Do some rotation movement at beginning.                        
+#If you choose 0 or 1, you should write down the following matrix.
+#5 Rotation from camera frame to imu frame, imu^R_cam
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [-0.0038629257078134534, -0.9999541881260321, 0.008757822456861158, #-0.0038629257078134534, -0.9999541881260321, 0.008757822456861158,
+          -0.9999922298462609, 0.003869661544603869, 0.00075230754020444, # -0.9999922298462609, 0.003869661544603869, 0.00075230754020444,
+          -0.0007861628843620046, -0.008754848299097003, -0.9999613665433186] # -0.0007861628843620046, -0.008754848299097003, -0.9999613665433186]
+#6 Translation from camera frame to imu frame, imu^T_cam
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [-0.0223424012436389,0.010443621540258479,-3.631638656165076e-05] #-0.0223424012436389,0.010443621540258479, -3.631638656165076e-05]
+
+#7 feature traker paprameters
+max_cnt: 150            # max feature number in feature tracking
+min_dist: 20            # ！！！！min distance between two features 默认30
+freq: 0                 # frequence (Hz) of publish tracking result. At least 10Hz for good estimation. If set 0, the frequence will be same as raw image 
+F_threshold: 3.0        # ！！！！ransac threshold (pixel) 默认为1.0 ，增大该值会降低视觉处理效率
+show_track: 1           # publish tracking image as topic
+equalize: 1             # if image is too dark or light, trun on equalize to find enough features
+fisheye: 0              # if using fisheye, trun on it. A circle mask will be loaded to remove edge noisy points
+
+#8 optimization parameters
+max_solver_time: 0.04   # max solver itration time (ms), to guarantee real time
+max_num_iterations: 8   # max solver itrations, to guarantee real time
+keyframe_parallax: 10.0 # keyframe selection threshold (pixel)
+
+#9 imu parameters       The more accurate parameters you provide, the better performance
+acc_n:  8.9396e-03 #3   #8.9396112565919405e-03             # accelerometer measurement noise standard deviation. #0.2   0.04   #3
+gyr_n:  4.0695e-03 #3   #4.0695082341066338e-04             # gyroscope measurement noise standard deviation.     #0.05  0.004  #3
+acc_w:  2.2498e-03 #3   #2.2498100172854650e-04             # accelerometer bias random work noise standard deviation.  #0.02   #4
+gyr_w:  1.1090e-05 #5   #1.1089617272357886e-06             # gyroscope bias random work noise standard deviation.     #4.0e-5  #4
+g_norm: 9.787561        # gravity magnitude
+
+#10 unsynchronization parameters
+estimate_td: 0                      # online estimate time offset between camera and imu
+td: 0.0017508760941555021
+#td: 0.0017508760941555021 # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+
+#3 GNSS general parameters
+gnss_enable_type: 0 #                # if use GNSS: '0'represent no; '1'represent using SPP (GVINS), '2'represent using dual-freq IF PPP, '3'represent using dual-freq UDUC PPP,  
+gnss_meas_topic: "/ublox_driver/range_meas"           # GNSS raw measurement topic
+gnss_ephem_topic: "/ublox_driver/ephem"               # GPS, Galileo, BeiDou ephemeris
+gnss_glo_ephem_topic: "/ublox_driver/glo_ephem"       # GLONASS ephemeris
+gnss_iono_params_topic: "/ublox_driver/iono_params"   # GNSS broadcast ionospheric parameters
+gnss_tp_info_topic: "/ublox_driver/time_pulse_info"   # PPS time info
+gnss_elevation_thres: 15            # satellite elevation threshold (degree)
+gnss_psr_std_thres: 2.0             # pseudo-range std threshold
+gnss_dopp_std_thres: 2.0            # doppler std threshold
+gnss_track_num_thres: 20            # number of satellite tracking epochs before entering estimator
+gnss_ddt_sigma: 0.1
+gnss_local_online_sync: 0                       # if perform online synchronization betwen GNSS and local time
+local_trigger_info_topic: "/external_trigger"   # external trigger info of the local sensor, if `gnss_local_online_sync` is 1
+gnss_local_time_diff: 0.0                      # difference between GNSS and local time (s), if `gnss_local_online_sync` is 0, 默认 18.0
+gnss_iono_default_parameters: !!opencv-matrix
+   rows: 1
+   cols: 8
+   dt: d
+   data: [0.1118E-07,  0.2235E-07, -0.4172E-06,  0.6557E-06,
+          0.1249E+06, -0.4424E+06,  0.1507E+07, -0.2621E+06]
+# gnss2imu_level:    
+gnss2imu_level_x: 0.0  # 以imu为坐标原点的杆臂
+gnss2imu_level_y: 0.0
+gnss2imu_level_z: 0.0
+
+
+
+
+

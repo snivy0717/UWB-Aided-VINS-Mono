@@ -1,0 +1,80 @@
+%YAML:1.0
+
+#common parameters
+imu_topic: "/imu0"
+image_topic: "/cam0/image_raw"
+output_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/"
+
+#camera calibration
+model_type: PINHOLE
+camera_name: camera
+image_width: 640
+image_height: 480
+distortion_parameters:
+   k1: -0.01483193
+   k2: 0.04115488
+   p1: 0.0009112
+   p2: -0.0002758
+projection_parameters:
+   fx: 405.74577391
+   fy: 406.24655246
+   cx: 317.9444502
+   cy: 242.19246296
+
+# Extrinsic parameter between IMU and Camera.
+estimate_extrinsic: 2   # 手机先用2，开机后做几次明显转动帮助初始化
+# 这里先给一个中性初值：单位阵 + 零平移
+extrinsicRotation: !!opencv-matrix
+   rows: 3
+   cols: 3
+   dt: d
+   data: [1, 0, 0,
+          0, 1, 0,
+          0, 0, 1]
+
+extrinsicTranslation: !!opencv-matrix
+   rows: 3
+   cols: 1
+   dt: d
+   data: [0, 0, 0]
+
+#feature tracker parameters
+max_cnt: 150
+min_dist: 30
+freq: 0                 # 0表示跟原始图像频率一致，你的视频约30Hz
+F_threshold: 1.0
+show_track: 1
+equalize: 1
+fisheye: 0
+
+#optimization parameters
+max_solver_time: 0.04
+max_num_iterations: 8
+keyframe_parallax: 10.0
+
+#imu parameters
+# 先用经验初值试跑，后面再调
+acc_n: 0.0148
+acc_w: 0.0020
+gyr_n: 0.0021
+gyr_w: 0.000017
+
+#loop closure parameters
+loop_closure: 1
+load_previous_pose_graph: 0
+fast_relocalization: 0
+pose_graph_save_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/pose_graph/"
+
+#unsynchronization parameters
+estimate_td: 1
+td: 0.0
+
+#rolling shutter parameters
+# 手机大概率是rolling shutter，但先关掉保证先跑通
+rolling_shutter: 0
+rolling_shutter_tr: 0
+
+#visualization parameters
+save_image: 1
+visualize_imu_forward: 0
+visualize_camera_size: 0.4

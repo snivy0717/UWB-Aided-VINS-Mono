@@ -1,0 +1,36 @@
+# ROS / catkin build outputs
+build/
+devel/
+install/
+log/
+.catkin_tools/
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ROS bags and large data
+*.bag
+*.db3
+*.mcap
+
+# Output results
+output/
+results/
+*.csv
+
+# System files
+.DS_Store
+Thumbs.db
+data/
+.~lock*
