@@ -6,7 +6,7 @@ image_topic: "/cam0/image_raw"
 output_path: "/home/pc/文档/mycode/vins_ws/src/VINS-Mono/output/2026_04_26_12_40_42/uwb"
 
 # UWB parameters
-use_uwb: 1
+use_uwb: 0
 uwb_topic: "/uwb/range"
 uwb_noise: 0.1
 uwb_max_interval: 0.05

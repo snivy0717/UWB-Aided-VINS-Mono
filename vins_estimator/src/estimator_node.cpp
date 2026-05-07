@@ -332,17 +332,17 @@ void process()
             if (USE_UWB)
             {
                 const double image_timestamp = img_msg->header.stamp.toSec();
-                ROS_INFO_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
-                                  image_timestamp, USE_UWB,
-                                  static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
+                ROS_DEBUG_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
+                                   image_timestamp, USE_UWB,
+                                   static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
                 const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
                 if (!uwb_measurements.empty())
                 {
                     for (const auto &uwb : uwb_measurements)
                     {
-                        ROS_INFO("UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
-                                 image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
-                                 uwb.anchor_id, uwb.range);
+                        ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
+                                          image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
+                                          uwb.anchor_id, uwb.range);
                     }
                 }
                 else
@@ -351,15 +351,15 @@ void process()
                     double nearest_dt = 0.0;
                     if (uwb_manager.getNearestMeasurement(image_timestamp, nearest_uwb, nearest_dt))
                     {
-                        ROS_INFO_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
-                                          image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                          nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
+                        ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
+                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                           nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
                     }
                     else
                     {
-                        ROS_INFO_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
-                                          image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                          UWB_MAX_INTERVAL);
+                        ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
+                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                           UWB_MAX_INTERVAL);
                     }
                 }
             }
