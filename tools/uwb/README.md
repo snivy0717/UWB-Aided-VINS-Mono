@@ -81,6 +81,72 @@ rosbag play output_with_uwb.bag
 rostopic echo /uwb/range
 ```
 
+## Convert UVINS official dataset
+
+The official UVINS bag stores UWB data as one `uwb/UWB_msg` containing three
+anchor ranges: `D0`, `D1`, and `D2`. This project consumes
+`vins_estimator/UWBRange`, where each message carries one `anchor_id` and one
+`range`.
+
+Use `uvins_bag_to_vins_bag.py` to convert each UVINS UWB message into three
+`/uwb/range` messages:
+
+```text
+D0 -> anchor_id 0
+D1 -> anchor_id 1
+D2 -> anchor_id 2
+```
+
+Conversion example:
+
+```bash
+python3 tools/uwb/uvins_bag_to_vins_bag.py \
+  --input_bag /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset.bag \
+  --output_bag /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset_for_vins_mono_uwb.bag
+```
+
+Optional groundtruth copy:
+
+```bash
+python3 tools/uwb/uvins_bag_to_vins_bag.py \
+  --input_bag /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset.bag \
+  --output_bag /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset_for_vins_mono_uwb.bag \
+  --copy_groundtruth
+```
+
+Check the converted bag:
+
+```bash
+rosbag info /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset_for_vins_mono_uwb.bag
+```
+
+Expected converted topics:
+
+```text
+/cam0/image_raw       sensor_msgs/Image
+/imu0                 sensor_msgs/Imu
+/uwb/range            vins_estimator/UWBRange
+/ground_truth/pose    geometry_msgs/PoseStamped
+```
+
+`/ground_truth/pose` is present only when `--copy_groundtruth` is used.
+
+To test the data path without changing backend optimization, set the active
+VINS-Mono config to:
+
+```yaml
+uwb_fusion_mode: 1
+```
+
+Then launch `vins_estimator` and play the converted bag:
+
+```bash
+rosbag play /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VIO-Correction-System/dataset/UVINS_Dataset_for_vins_mono_uwb.bag
+```
+
+The estimator terminal should print UWB receive, interpolation, and frame
+association messages.
+
 ## Validate in VINS-Mono
 
 Set `uwb_fusion_mode: 1` in the active VINS-Mono YAML config, then run `vins_estimator` and play the bag. The estimator terminal should show:
