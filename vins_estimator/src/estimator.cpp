@@ -1,5 +1,53 @@
 #include "estimator.h"
 
+namespace
+{
+void writeUVINSCorrectionDebugCSV(double timestamp,
+                                  bool success,
+                                  bool accepted,
+                                  const Eigen::Vector3d &dP,
+                                  double norm,
+                                  double delta_norm,
+                                  double final_cost,
+                                  const Eigen::Vector3d &measured_ranges,
+                                  const Eigen::Vector3d &predicted_ranges,
+                                  const Eigen::Vector3d &range_residuals,
+                                  const Eigen::Vector3d &raw_position,
+                                  const Eigen::Vector3d &corrected_position)
+{
+    std::string output_dir = "";
+    const size_t slash_pos = VINS_RESULT_PATH.find_last_of("/\\");
+    if (slash_pos != std::string::npos)
+        output_dir = VINS_RESULT_PATH.substr(0, slash_pos + 1);
+
+    const std::string debug_path = output_dir + "uvins_correction_debug.csv";
+    static bool header_written = false;
+    std::ofstream fout(debug_path, header_written ? std::ios::app : std::ios::out);
+    if (!fout.is_open())
+        return;
+
+    if (!header_written)
+    {
+        fout << "timestamp,success,accepted,dpx,dpy,dpz,norm,delta_norm,final_cost,"
+             << "D0,D1,D2,pred_D0,pred_D1,pred_D2,res_D0,res_D1,res_D2,"
+             << "raw_px,raw_py,raw_pz,corrected_px,corrected_py,corrected_pz\n";
+        header_written = true;
+    }
+
+    fout.setf(std::ios::fixed, std::ios::floatfield);
+    fout.precision(9);
+    fout << timestamp << "," << (success ? 1 : 0) << "," << (accepted ? 1 : 0) << ",";
+    fout.precision(6);
+    fout << dP.x() << "," << dP.y() << "," << dP.z() << ","
+         << norm << "," << delta_norm << "," << final_cost << ","
+         << measured_ranges[0] << "," << measured_ranges[1] << "," << measured_ranges[2] << ","
+         << predicted_ranges[0] << "," << predicted_ranges[1] << "," << predicted_ranges[2] << ","
+         << range_residuals[0] << "," << range_residuals[1] << "," << range_residuals[2] << ","
+         << raw_position.x() << "," << raw_position.y() << "," << raw_position.z() << ","
+         << corrected_position.x() << "," << corrected_position.y() << "," << corrected_position.z() << "\n";
+}
+}
+
 Estimator::Estimator(): f_manager{Rs}
 {
     ROS_INFO("init begins");
@@ -70,6 +118,8 @@ void Estimator::clearState()
     latest_uwb_correction_anchor_count = 0;
     latest_uwb_correction_mean_abs_residual = 0.0;
     latest_uwb_correction_timestamp = 0.0;
+    uvins_has_previous_valid_correction = false;
+    uvins_previous_valid_correction.setZero();
     uvins_correction_manager.clear();
 
 
@@ -221,6 +271,93 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                                           aligned_uwb_ranges[0],
                                           aligned_uwb_ranges[1],
                                           aligned_uwb_ranges[2]);
+                        if (uvins_correction_manager.isWindowReady())
+                        {
+                            Eigen::Vector3d correction = Eigen::Vector3d::Zero();
+                            double final_cost = 0.0;
+                            int valid_count = 0;
+                            const bool optimization_success =
+                                uvins_correction_manager.optimizeCorrection(correction, final_cost, valid_count);
+                            const double correction_norm = correction.norm();
+                            const double delta_norm = uvins_has_previous_valid_correction ?
+                                (correction - uvins_previous_valid_correction).norm() : 0.0;
+                            const bool norm_ok = correction_norm <= UVINS_CORRECTION_MAX_NORM;
+                            const bool cost_ok = final_cost <= UVINS_CORRECTION_MAX_FINAL_COST;
+                            const bool delta_ok = !uvins_has_previous_valid_correction ||
+                                delta_norm <= UVINS_CORRECTION_MAX_DELTA_NORM;
+                            double diagnostic_timestamp = header.stamp.toSec();
+                            Eigen::Vector3d measured_ranges = Eigen::Vector3d::Zero();
+                            Eigen::Vector3d predicted_ranges = Eigen::Vector3d::Zero();
+                            Eigen::Vector3d range_residuals = Eigen::Vector3d::Zero();
+                            Eigen::Vector3d raw_position = Ps[frame_count];
+                            Eigen::Vector3d corrected_position = raw_position + correction;
+                            uvins_correction_manager.getLastFrameDiagnostics(correction,
+                                                                              diagnostic_timestamp,
+                                                                              measured_ranges,
+                                                                              predicted_ranges,
+                                                                              range_residuals,
+                                                                              raw_position,
+                                                                              corrected_position);
+                            if (optimization_success &&
+                                norm_ok &&
+                                cost_ok &&
+                                delta_ok)
+                            {
+                                latest_uwb_correction_dP = correction;
+                                latest_uwb_correction_valid = true;
+                                latest_uwb_correction_norm = correction_norm;
+                                latest_uwb_correction_anchor_count = 3;
+                                latest_uwb_correction_mean_abs_residual = final_cost;
+                                latest_uwb_correction_timestamp = header.stamp.toSec();
+                                uvins_previous_valid_correction = correction;
+                                uvins_has_previous_valid_correction = true;
+                                ROS_INFO_THROTTLE(1.0,
+                                                  "UVINS optimization success t: %.9f dP: %.4f %.4f %.4f norm: %.4f delta_norm: %.4f final_cost: %.6f valid_count: %d",
+                                                  header.stamp.toSec(),
+                                                  correction.x(), correction.y(), correction.z(),
+                                                  correction_norm, delta_norm, final_cost, valid_count);
+                            }
+                            else
+                            {
+                                latest_uwb_correction_valid = false;
+                                std::string rejection_reason;
+                                if (!optimization_success)
+                                    rejection_reason += "optimization not usable";
+                                if (!norm_ok)
+                                    rejection_reason += rejection_reason.empty() ? "norm too large" : ", norm too large";
+                                if (!cost_ok)
+                                    rejection_reason += rejection_reason.empty() ? "final_cost too large" : ", final_cost too large";
+                                if (!delta_ok)
+                                    rejection_reason += rejection_reason.empty() ? "delta dP too large" : ", delta dP too large";
+                                if (rejection_reason.empty())
+                                    rejection_reason = "unknown";
+                                ROS_WARN_THROTTLE(1.0,
+                                                  "UVINS optimization rejected correction t: %.9f success: %d reason: %s D: %.3f %.3f %.3f pred_D: %.3f %.3f %.3f res_D: %.3f %.3f %.3f dP: %.4f %.4f %.4f norm: %.4f delta_norm: %.4f final_cost: %.6f max_norm: %.4f max_final_cost: %.4f max_delta_norm: %.4f valid_count: %d",
+                                                  header.stamp.toSec(), optimization_success ? 1 : 0,
+                                                  rejection_reason.c_str(),
+                                                  measured_ranges[0], measured_ranges[1], measured_ranges[2],
+                                                  predicted_ranges[0], predicted_ranges[1], predicted_ranges[2],
+                                                  range_residuals[0], range_residuals[1], range_residuals[2],
+                                                  correction.x(), correction.y(), correction.z(),
+                                                  correction_norm, delta_norm, final_cost,
+                                                  UVINS_CORRECTION_MAX_NORM,
+                                                  UVINS_CORRECTION_MAX_FINAL_COST,
+                                                  UVINS_CORRECTION_MAX_DELTA_NORM,
+                                                  valid_count);
+                            }
+                            writeUVINSCorrectionDebugCSV(diagnostic_timestamp,
+                                                         optimization_success,
+                                                         latest_uwb_correction_valid,
+                                                         correction,
+                                                         correction_norm,
+                                                         delta_norm,
+                                                         final_cost,
+                                                         measured_ranges,
+                                                         predicted_ranges,
+                                                         range_residuals,
+                                                         raw_position,
+                                                         corrected_position);
+                        }
                     }
                 }
             }

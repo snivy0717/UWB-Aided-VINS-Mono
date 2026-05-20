@@ -38,6 +38,10 @@ int UWB_CORRECTION_MIN_ANCHORS = 3;
 double UWB_CORRECTION_MAX_NORM = 2.0;
 int USE_UWB_CORRECTED_OUTPUT = 1;
 double UWB_CORRECTED_OUTPUT_MAX_NORM = 2.0;
+double UVINS_CORRECTION_MAX_NORM = 2.0;
+double UVINS_CORRECTION_MAX_FINAL_COST = 100.0;
+double UVINS_CORRECTION_MAX_DELTA_NORM = 0.8;
+int USE_UVINS_CORRECTED_OUTPUT = 1;
 int UWB_WORLD_ALIGNED = 0;
 double UWB_WORLD_TO_VINS_YAW = 0.0;
 Eigen::Vector3d UWB_WORLD_TO_VINS_TRANSLATION{0.0, 0.0, 0.0};
@@ -92,6 +96,10 @@ void readParameters(ros::NodeHandle &n)
     UWB_CORRECTION_MAX_NORM = 2.0;
     USE_UWB_CORRECTED_OUTPUT = 1;
     UWB_CORRECTED_OUTPUT_MAX_NORM = 2.0;
+    UVINS_CORRECTION_MAX_NORM = 2.0;
+    UVINS_CORRECTION_MAX_FINAL_COST = 100.0;
+    UVINS_CORRECTION_MAX_DELTA_NORM = 0.8;
+    USE_UVINS_CORRECTED_OUTPUT = 1;
     UWB_WORLD_ALIGNED = 0;
     UWB_WORLD_TO_VINS_YAW = 0.0;
     UWB_WORLD_TO_VINS_TRANSLATION.setZero();
@@ -134,6 +142,14 @@ void readParameters(ros::NodeHandle &n)
         USE_UWB_CORRECTED_OUTPUT = static_cast<int>(fsSettings["use_uwb_corrected_output"]);
     if (!fsSettings["uwb_corrected_output_max_norm"].empty())
         UWB_CORRECTED_OUTPUT_MAX_NORM = static_cast<double>(fsSettings["uwb_corrected_output_max_norm"]);
+    if (!fsSettings["uvins_correction_max_norm"].empty())
+        UVINS_CORRECTION_MAX_NORM = static_cast<double>(fsSettings["uvins_correction_max_norm"]);
+    if (!fsSettings["uvins_correction_max_final_cost"].empty())
+        UVINS_CORRECTION_MAX_FINAL_COST = static_cast<double>(fsSettings["uvins_correction_max_final_cost"]);
+    if (!fsSettings["uvins_correction_max_delta_norm"].empty())
+        UVINS_CORRECTION_MAX_DELTA_NORM = static_cast<double>(fsSettings["uvins_correction_max_delta_norm"]);
+    if (!fsSettings["use_uvins_corrected_output"].empty())
+        USE_UVINS_CORRECTED_OUTPUT = static_cast<int>(fsSettings["use_uvins_corrected_output"]);
     if (!fsSettings["uwb_world_aligned"].empty())
         UWB_WORLD_ALIGNED = static_cast<int>(fsSettings["uwb_world_aligned"]);
     if (!fsSettings["uwb_world_to_vins_yaw"].empty())
@@ -235,6 +251,9 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO("UWB_CORRECTION_MIN_ANCHORS: %d UWB_CORRECTION_MAX_NORM: %f", UWB_CORRECTION_MIN_ANCHORS, UWB_CORRECTION_MAX_NORM);
         ROS_INFO("USE_UWB_CORRECTED_OUTPUT: %d UWB_CORRECTED_OUTPUT_MAX_NORM: %f",
                  USE_UWB_CORRECTED_OUTPUT, UWB_CORRECTED_OUTPUT_MAX_NORM);
+        ROS_INFO("USE_UVINS_CORRECTED_OUTPUT: %d UVINS_CORRECTION_MAX_NORM: %f UVINS_CORRECTION_MAX_FINAL_COST: %f UVINS_CORRECTION_MAX_DELTA_NORM: %f",
+                 USE_UVINS_CORRECTED_OUTPUT, UVINS_CORRECTION_MAX_NORM,
+                 UVINS_CORRECTION_MAX_FINAL_COST, UVINS_CORRECTION_MAX_DELTA_NORM);
         if (USE_UWB_CORRECTION && !UWB_CORRECTION_DEBUG_ONLY)
             ROS_WARN("use_uwb_correction is enabled with debug_only=0; applying correction is not recommended before real-data and coordinate-frame validation");
         ROS_INFO("UWB_WORLD_TO_VINS_YAW: %f", UWB_WORLD_TO_VINS_YAW);

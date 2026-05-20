@@ -101,6 +101,8 @@ class Estimator
     int latest_uwb_correction_anchor_count;
     double latest_uwb_correction_mean_abs_residual;
     double latest_uwb_correction_timestamp;
+    bool uvins_has_previous_valid_correction;
+    Vector3d uvins_previous_valid_correction;
     UVINSCorrectionManager uvins_correction_manager;
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];

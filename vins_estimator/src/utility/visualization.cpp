@@ -22,6 +22,8 @@ CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
 CameraPoseVisualization keyframebasevisual(0.0, 0.0, 1.0, 1.0);
 static double sum_of_path = 0;
 static Vector3d last_path(0.0, 0.0, 0.0);
+static bool has_uvins_dP = false;
+static Vector3d current_uvins_dP(0.0, 0.0, 0.0);
 
 void registerPub(ros::NodeHandle &n)
 {
@@ -143,7 +145,46 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         {
             if (USE_UVINS_UWB_PIPELINE)
             {
-                ROS_INFO_THROTTLE(1.0, "UVINS corrected output disabled until UVINS window optimization is implemented");
+                bool reused_uvins_dP = true;
+                if (USE_UVINS_CORRECTED_OUTPUT && estimator.latest_uwb_correction_valid)
+                {
+                    current_uvins_dP = estimator.latest_uwb_correction_dP;
+                    has_uvins_dP = true;
+                    reused_uvins_dP = false;
+                }
+
+                if (USE_UVINS_CORRECTED_OUTPUT && has_uvins_dP)
+                {
+                    const Vector3d raw_position = estimator.Ps[WINDOW_SIZE];
+                    const Vector3d corrected_position = raw_position + current_uvins_dP;
+
+                    nav_msgs::Odometry corrected_odometry = odometry;
+                    corrected_odometry.pose.pose.position.x = corrected_position.x();
+                    corrected_odometry.pose.pose.position.y = corrected_position.y();
+                    corrected_odometry.pose.pose.position.z = corrected_position.z();
+                    pub_odometry_uwb_corrected.publish(corrected_odometry);
+
+                    geometry_msgs::PoseStamped corrected_pose_stamped;
+                    corrected_pose_stamped.header = header;
+                    corrected_pose_stamped.header.frame_id = odometry.header.frame_id;
+                    corrected_pose_stamped.pose = corrected_odometry.pose.pose;
+                    path_uwb_corrected.header = header;
+                    path_uwb_corrected.header.frame_id = odometry.header.frame_id;
+                    path_uwb_corrected.poses.push_back(corrected_pose_stamped);
+                    pub_path_uwb_corrected.publish(path_uwb_corrected);
+
+                    ROS_INFO_THROTTLE(1.0,
+                                      "UVINS corrected output t: %.9f reused: %d raw_p: %.4f %.4f %.4f dP_used: %.4f %.4f %.4f corrected_p: %.4f %.4f %.4f",
+                                      header.stamp.toSec(),
+                                      reused_uvins_dP ? 1 : 0,
+                                      raw_position.x(), raw_position.y(), raw_position.z(),
+                                      current_uvins_dP.x(), current_uvins_dP.y(), current_uvins_dP.z(),
+                                      corrected_position.x(), corrected_position.y(), corrected_position.z());
+                }
+                else
+                {
+                    ROS_INFO_THROTTLE(1.0, "UVINS corrected output waiting for first valid optimized dP");
+                }
             }
             else if (estimator.latest_uwb_correction_valid &&
                 estimator.latest_uwb_correction_norm <= UWB_CORRECTED_OUTPUT_MAX_NORM)

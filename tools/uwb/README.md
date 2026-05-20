@@ -208,6 +208,71 @@ implemented yet. Therefore, when `use_uvins_uwb_pipeline: 1` is enabled,
 corrected output is temporarily disabled so it does not publish the old
 single-frame `dP`.
 
+## UVINS Step 3 correction window optimization
+
+The UVINS correction window now optimizes the window correction variables
+`dPs[i]` with the UVINS-style residuals:
+
+- `UWBErr`: constrains the corrected UWB tag position against the three anchor
+  ranges.
+- `VIOErr`: constrains each correction `dP_i`.
+- `SmoothErr`: constrains adjacent corrected positions.
+
+Each residual block uses `ceres::HuberLoss(0.15)`. The optimized correction
+published to the output path is the last window element:
+
+```text
+optimized_dP = dPs[9]
+p_corrected = p_vio + optimized_dP
+```
+
+The original VINS-Mono odometry and path remain unchanged:
+
+```text
+/vins_estimator/odometry
+/vins_estimator/path
+```
+
+The UWB corrected trajectory is an external output:
+
+```text
+/vins_estimator/odometry_uwb_corrected
+/vins_estimator/path_uwb_corrected
+```
+
+After the first valid optimized `dP`, the corrected path is published
+continuously by reusing the latest valid UVINS correction on frames without a new
+optimization result. This avoids a sparse path containing only correction update
+points.
+
+The optimized `dP` is not written back to VINS-Mono internal `Ps`, `Rs`, `Vs`,
+`Bas`, or `Bgs`; it only affects the corrected output topics.
+
+## UVINS Step 3 diagnostics
+
+Step 3 keeps the UVINS-style `UWBErr`, `VIOErr`, `SmoothErr`, and
+`ceres::HuberLoss(0.15)` correction window optimization. This diagnostic pass
+adds consistency and rejection checks without changing the VINS-Mono backend.
+
+Updates:
+
+- The UWB Jacobian is computed at the same corrected UWB tag position used by
+  `UWBErr`: `Vps[i] + dPs[i] + Vqs[i] * P_UWB_IMU`.
+- A valid optimized `dP` must pass the norm, final cost, and delta-to-previous
+  valid correction checks.
+- `uvins_correction_max_delta_norm` rejects sudden correction jumps.
+- Rejected corrections print the measured ranges, predicted ranges, residuals,
+  `dP`, norm, delta norm, final cost, and rejection reason.
+- `uvins_correction_debug.csv` is written in the configured output directory for
+  every ready-window optimization.
+
+Rejected corrections never overwrite the currently used corrected-output `dP`.
+The corrected path continues to reuse the last valid UVINS correction and logs
+whether the current output used a new correction or a reused one.
+
+The corrected path remains an external output only; `dP` is not written back to
+VINS internal `Ps`, `Rs`, `Vs`, `Bas`, or `Bgs`.
+
 ## UWB corrected output mode
 
 In `uwb_fusion_mode: 1`, the estimator publishes two trajectories:
