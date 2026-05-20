@@ -18,6 +18,7 @@
 #include "factor/projection_td_factor.h"
 #include "factor/marginalization_factor.h"
 #include "uwb/uwb_correction.h"
+#include "uwb/uvins_correction_manager.h"
 #include "uwb/uwb_manager.h"
 
 #include <unordered_map>
@@ -53,6 +54,7 @@ class Estimator
     void slideWindowNew();
     void slideWindowOld();
     void optimization();
+    bool uvinsCorrectDetection() const;
     void vector2double();
     void double2vector();
     bool failureDetection();
@@ -93,6 +95,13 @@ class Estimator
     IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
     Vector3d acc_0, gyr_0;
     UWBFrameMeasurement uwb_frame_measurements[(WINDOW_SIZE + 1)];
+    Vector3d latest_uwb_correction_dP;
+    bool latest_uwb_correction_valid;
+    double latest_uwb_correction_norm;
+    int latest_uwb_correction_anchor_count;
+    double latest_uwb_correction_mean_abs_residual;
+    double latest_uwb_correction_timestamp;
+    UVINSCorrectionManager uvins_correction_manager;
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];
     vector<Vector3d> linear_acceleration_buf[(WINDOW_SIZE + 1)];

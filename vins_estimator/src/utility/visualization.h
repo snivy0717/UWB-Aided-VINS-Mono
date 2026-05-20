@@ -20,12 +20,15 @@
 #include <fstream>
 
 extern ros::Publisher pub_odometry;
+extern ros::Publisher pub_odometry_uwb_corrected;
 extern ros::Publisher pub_path, pub_pose;
+extern ros::Publisher pub_path_uwb_corrected;
 extern ros::Publisher pub_cloud, pub_map;
 extern ros::Publisher pub_key_poses;
 extern ros::Publisher pub_ref_pose, pub_cur_pose;
 extern ros::Publisher pub_key;
 extern nav_msgs::Path path;
+extern nav_msgs::Path path_uwb_corrected;
 extern ros::Publisher pub_pose_graph;
 extern int IMAGE_ROW, IMAGE_COL;
 

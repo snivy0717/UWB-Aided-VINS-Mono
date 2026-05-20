@@ -3,13 +3,16 @@
 using namespace ros;
 using namespace Eigen;
 ros::Publisher pub_odometry, pub_latest_odometry;
+ros::Publisher pub_odometry_uwb_corrected;
 ros::Publisher pub_path, pub_relo_path;
+ros::Publisher pub_path_uwb_corrected;
 ros::Publisher pub_point_cloud, pub_margin_cloud;
 ros::Publisher pub_key_poses;
 ros::Publisher pub_relo_relative_pose;
 ros::Publisher pub_camera_pose;
 ros::Publisher pub_camera_pose_visual;
 nav_msgs::Path path, relo_path;
+nav_msgs::Path path_uwb_corrected;
 
 ros::Publisher pub_keyframe_pose;
 ros::Publisher pub_keyframe_point;
@@ -26,6 +29,8 @@ void registerPub(ros::NodeHandle &n)
     pub_path = n.advertise<nav_msgs::Path>("path", 1000);
     pub_relo_path = n.advertise<nav_msgs::Path>("relocalization_path", 1000);
     pub_odometry = n.advertise<nav_msgs::Odometry>("odometry", 1000);
+    pub_odometry_uwb_corrected = n.advertise<nav_msgs::Odometry>("odometry_uwb_corrected", 1000);
+    pub_path_uwb_corrected = n.advertise<nav_msgs::Path>("path_uwb_corrected", 1000);
     pub_point_cloud = n.advertise<sensor_msgs::PointCloud>("point_cloud", 1000);
     pub_margin_cloud = n.advertise<sensor_msgs::PointCloud>("history_cloud", 1000);
     pub_key_poses = n.advertise<visualization_msgs::Marker>("key_poses", 1000);
@@ -133,6 +138,53 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         path.header.frame_id = "world";
         path.poses.push_back(pose_stamped);
         pub_path.publish(path);
+
+        if (USE_UWB_CORRECTED_OUTPUT && USE_UWB_CORRECTION)
+        {
+            if (USE_UVINS_UWB_PIPELINE)
+            {
+                ROS_INFO_THROTTLE(1.0, "UVINS corrected output disabled until UVINS window optimization is implemented");
+            }
+            else if (estimator.latest_uwb_correction_valid &&
+                estimator.latest_uwb_correction_norm <= UWB_CORRECTED_OUTPUT_MAX_NORM)
+            {
+                const Vector3d raw_position = estimator.Ps[WINDOW_SIZE];
+                const Vector3d corrected_position = raw_position + estimator.latest_uwb_correction_dP;
+
+                nav_msgs::Odometry corrected_odometry = odometry;
+                corrected_odometry.pose.pose.position.x = corrected_position.x();
+                corrected_odometry.pose.pose.position.y = corrected_position.y();
+                corrected_odometry.pose.pose.position.z = corrected_position.z();
+                pub_odometry_uwb_corrected.publish(corrected_odometry);
+
+                geometry_msgs::PoseStamped corrected_pose_stamped;
+                corrected_pose_stamped.header = header;
+                corrected_pose_stamped.header.frame_id = odometry.header.frame_id;
+                corrected_pose_stamped.pose = corrected_odometry.pose.pose;
+                path_uwb_corrected.header = header;
+                path_uwb_corrected.header.frame_id = odometry.header.frame_id;
+                path_uwb_corrected.poses.push_back(corrected_pose_stamped);
+                pub_path_uwb_corrected.publish(path_uwb_corrected);
+
+                ROS_INFO_THROTTLE(1.0,
+                                  "UWB corrected output t: %.9f dP: %.4f %.4f %.4f norm: %.4f raw_p: %.4f %.4f %.4f corrected_p: %.4f %.4f %.4f",
+                                  header.stamp.toSec(),
+                                  estimator.latest_uwb_correction_dP.x(),
+                                  estimator.latest_uwb_correction_dP.y(),
+                                  estimator.latest_uwb_correction_dP.z(),
+                                  estimator.latest_uwb_correction_norm,
+                                  raw_position.x(), raw_position.y(), raw_position.z(),
+                                  corrected_position.x(), corrected_position.y(), corrected_position.z());
+            }
+            else
+            {
+                ROS_INFO_THROTTLE(1.0,
+                                  "Skip UWB corrected output: valid=%d norm=%.4f max_norm=%.4f",
+                                  estimator.latest_uwb_correction_valid ? 1 : 0,
+                                  estimator.latest_uwb_correction_norm,
+                                  UWB_CORRECTED_OUTPUT_MAX_NORM);
+            }
+        }
 
         Vector3d correct_t;
         Vector3d correct_v;

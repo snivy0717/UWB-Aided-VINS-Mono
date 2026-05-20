@@ -59,6 +59,8 @@ add_executable(vins_estimator
     src/utility/visualization.cpp
     src/utility/CameraPoseVisualization.cpp
     src/uwb/uwb_manager.cpp
+    src/uwb/uwb_triplet_manager.cpp
+    src/uwb/uvins_correction_manager.cpp
     src/uwb/uwb_correction.cpp
     src/initial/solve_5pts.cpp
     src/initial/initial_aligment.cpp

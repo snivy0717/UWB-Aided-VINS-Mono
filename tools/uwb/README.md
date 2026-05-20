@@ -147,6 +147,96 @@ rosbag play /home/pc/文档/mycode/uvins_ws/src/UVINS-Ultra-Wideband-assisted-VI
 The estimator terminal should print UWB receive, interpolation, and frame
 association messages.
 
+## UVINS-style UWB input pipeline
+
+When `use_uvins_uwb_pipeline: 1` is enabled, each incoming
+`vins_estimator/UWBRange` message is first assembled by timestamp into one
+three-anchor `UWBTriplet`:
+
+```text
+D0 = anchor_id 0
+D1 = anchor_id 1
+D2 = anchor_id 2
+```
+
+Only complete triplets with `D0`, `D1`, and `D2` all greater than
+`uwb_min_range` enter the UWB pipeline. Partial triplets and triplets containing
+invalid, NaN, infinite, or too-small ranges are not passed to correction, so the
+estimator should not associate a UWB frame with `count: 2`.
+
+The accepted three-anchor distance vector is processed in the same order as the
+UVINS UWB entry path:
+
+1. Assemble `D0/D1/D2` from three `UWBRange` messages.
+2. Apply a vector mean filter with `uwb_mean_filter_window_size: 4`.
+3. Keep the latest `uwb_interp_window_size: 4` filtered triplets.
+4. Use four-point cubic interpolation to align `D0`, `D1`, and `D2` to the
+   current image/VIO timestamp.
+5. Convert the aligned triplet back into three `UWBMeasurement` entries before
+   `Estimator::inputUWB()`.
+
+This is the first step toward matching UVINS
+`UWB_callback + E_K_FILTER::Mean_filter + Input_UWB + processUWB`. The UVINS
+correction optimization window and `UWBErr`/`VIOErr`/`SmoothErr` are not changed
+in this step.
+
+## UVINS correction window step
+
+The UVINS-style UWB input pipeline is complete: incoming `UWBRange` messages are
+assembled into `D0/D1/D2`, filtered as a three-anchor vector, buffered as four
+triplets, and cubic-interpolated to the image/VIO timestamp.
+
+This step adds the UVINS correction window data structure:
+
+```text
+Us      aligned UWB D0/D1/D2
+dPs     correction initialization, currently zero
+Vps     VIO positions
+Vqs     VIO orientations
+Headers timestamps
+Ps_cov  covariance placeholder, currently identity
+```
+
+The correction window updates only after VINS initialization is complete and the
+current frame satisfies the UVINS `correctDetection` gating concept. The first
+implementation uses the current VINS-Mono keyframe decision as the gating
+approximation; the exact UVINS `correctDetection` condition will be refined in a
+later step.
+
+`UWBErr`, `VIOErr`, `SmoothErr`, and the UVINS window optimization are not
+implemented yet. Therefore, when `use_uvins_uwb_pipeline: 1` is enabled,
+corrected output is temporarily disabled so it does not publish the old
+single-frame `dP`.
+
+## UWB corrected output mode
+
+In `uwb_fusion_mode: 1`, the estimator publishes two trajectories:
+
+- Original VINS-Mono trajectory.
+- UWB corrected output trajectory.
+
+The corrected output position is:
+
+```text
+p_corrected = p_vio + dP
+```
+
+This output does not modify VINS-Mono internal state. It does not write `dP`
+back to `Ps`, does not change velocity or bias states, and does not add backend
+residuals.
+
+Corrected output topics:
+
+```text
+/vins_estimator/odometry_uwb_corrected
+/vins_estimator/path_uwb_corrected
+```
+
+The current corrected output only adjusts position. Orientation still comes
+from the original `Rs[WINDOW_SIZE]`. A corrected message is published only when
+the current frame has a valid UWB correction and the correction norm is less
+than or equal to `uwb_corrected_output_max_norm`.
+
 ## Validate in VINS-Mono
 
 Set `uwb_fusion_mode: 1` in the active VINS-Mono YAML config, then run `vins_estimator` and play the bag. The estimator terminal should show:

@@ -64,6 +64,13 @@ void Estimator::clearState()
     all_image_frame.clear();
     pending_uwb_frames.clear();
     td = TD;
+    latest_uwb_correction_dP.setZero();
+    latest_uwb_correction_valid = false;
+    latest_uwb_correction_norm = 0.0;
+    latest_uwb_correction_anchor_count = 0;
+    latest_uwb_correction_mean_abs_residual = 0.0;
+    latest_uwb_correction_timestamp = 0.0;
+    uvins_correction_manager.clear();
 
 
     if (tmp_pre_integration != nullptr)
@@ -131,10 +138,23 @@ void Estimator::inputUWB(double timestamp, const std::vector<UWBMeasurement> &me
     pending_uwb_frames[timestamp] = frame_measurement;
 }
 
+bool Estimator::uvinsCorrectDetection() const
+{
+    // This follows UVINS correctDetection gating concept; exact UVINS
+    // correctDetection will be refined later.
+    return marginalization_flag == MARGIN_OLD;
+}
+
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
     ROS_DEBUG("new image coming ------------------------------------------");
     ROS_DEBUG("Adding feature points %lu", image.size());
+    latest_uwb_correction_dP.setZero();
+    latest_uwb_correction_valid = false;
+    latest_uwb_correction_norm = 0.0;
+    latest_uwb_correction_anchor_count = 0;
+    latest_uwb_correction_mean_abs_residual = 0.0;
+    latest_uwb_correction_timestamp = header.stamp.toSec();
     if (f_manager.addFeatureCheckParallax(frame_count, image, td))
         marginalization_flag = MARGIN_OLD;
     else
@@ -158,24 +178,79 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
                           frame_count);
         if (USE_UWB_CORRECTION)
         {
-            UWBCorrectionResult correction = UWBCorrection::computePositionCorrection(
-                Ps[frame_count],
-                Rs[frame_count],
-                P_UWB_IMU,
-                UWB_ANCHOR_POSITIONS,
-                uwb_frame_measurements[frame_count].measurements,
-                UWB_NOISE,
-                UWB_CORRECTION_MIN_ANCHORS,
-                UWB_CORRECTION_MAX_NORM);
-            if (!correction.valid && correction.correction_norm > UWB_CORRECTION_MAX_NORM)
-                ROS_WARN_THROTTLE(1.0, "UWB correction dP norm %.3f exceeds max %.3f; debug only, not applied",
-                                  correction.correction_norm, UWB_CORRECTION_MAX_NORM);
-            ROS_INFO_THROTTLE(1.0,
-                              "UWB correction debug t: %.9f valid: %d dP: %.4f %.4f %.4f norm: %.4f anchors: %d mean_abs_residual: %.4f",
-                              header.stamp.toSec(), correction.valid ? 1 : 0,
-                              correction.dP.x(), correction.dP.y(), correction.dP.z(),
-                              correction.correction_norm, correction.used_anchor_count,
-                              correction.mean_abs_residual);
+            if (USE_UVINS_UWB_PIPELINE)
+            {
+                latest_uwb_correction_valid = false;
+                if (solver_flag != NON_LINEAR)
+                {
+                    ROS_INFO_THROTTLE(1.0, "UVINS correction waiting for VINS initialization");
+                }
+                else if (!uvinsCorrectDetection())
+                {
+                    ROS_INFO_THROTTLE(1.0, "UVINS correction waiting for keyframe/correctDetection");
+                }
+                else if (uwb_frame_measurements[frame_count].measurements.size() == 3)
+                {
+                    Eigen::Vector3d aligned_uwb_ranges = Eigen::Vector3d::Zero();
+                    bool complete_triplet = true;
+                    for (const auto &measurement : uwb_frame_measurements[frame_count].measurements)
+                    {
+                        if (measurement.anchor_id < 0 || measurement.anchor_id > 2)
+                        {
+                            complete_triplet = false;
+                            break;
+                        }
+                        aligned_uwb_ranges[measurement.anchor_id] = measurement.range;
+                    }
+
+                    if (complete_triplet)
+                    {
+                        const Eigen::Vector3d init_dP = Eigen::Vector3d::Zero();
+                        const Eigen::Matrix3d cov = Eigen::Matrix3d::Identity();
+                        uvins_correction_manager.updateState(header.stamp.toSec(),
+                                                             aligned_uwb_ranges,
+                                                             Ps[frame_count],
+                                                             Eigen::Quaterniond(Rs[frame_count]),
+                                                             init_dP,
+                                                             cov);
+                        ROS_INFO_THROTTLE(1.0,
+                                          "UVINS correction window update t: %.9f window_ready: %d valid_count: %d D0: %.3f D1: %.3f D2: %.3f",
+                                          header.stamp.toSec(),
+                                          uvins_correction_manager.isWindowReady() ? 1 : 0,
+                                          uvins_correction_manager.validCount(),
+                                          aligned_uwb_ranges[0],
+                                          aligned_uwb_ranges[1],
+                                          aligned_uwb_ranges[2]);
+                    }
+                }
+            }
+            else
+            {
+                UWBCorrectionResult correction = UWBCorrection::computePositionCorrection(
+                    Ps[frame_count],
+                    Rs[frame_count],
+                    P_UWB_IMU,
+                    UWB_ANCHOR_POSITIONS,
+                    uwb_frame_measurements[frame_count].measurements,
+                    UWB_NOISE,
+                    UWB_CORRECTION_MIN_ANCHORS,
+                    UWB_CORRECTION_MAX_NORM);
+                latest_uwb_correction_dP = correction.dP;
+                latest_uwb_correction_valid = correction.valid;
+                latest_uwb_correction_norm = correction.correction_norm;
+                latest_uwb_correction_anchor_count = correction.used_anchor_count;
+                latest_uwb_correction_mean_abs_residual = correction.mean_abs_residual;
+                latest_uwb_correction_timestamp = header.stamp.toSec();
+                if (!correction.valid && correction.correction_norm > UWB_CORRECTION_MAX_NORM)
+                    ROS_WARN_THROTTLE(1.0, "UWB correction dP norm %.3f exceeds max %.3f; debug only, not applied",
+                                      correction.correction_norm, UWB_CORRECTION_MAX_NORM);
+                ROS_INFO_THROTTLE(1.0,
+                                  "UWB correction debug t: %.9f valid: %d dP: %.4f %.4f %.4f norm: %.4f anchors: %d mean_abs_residual: %.4f",
+                                  header.stamp.toSec(), correction.valid ? 1 : 0,
+                                  correction.dP.x(), correction.dP.y(), correction.dP.z(),
+                                  correction.correction_norm, correction.used_anchor_count,
+                                  correction.mean_abs_residual);
+            }
         }
     }
 

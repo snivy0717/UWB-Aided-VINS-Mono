@@ -12,11 +12,13 @@
 #include "estimator.h"
 #include "parameters.h"
 #include "uwb/uwb_manager.h"
+#include "uwb/uwb_triplet_manager.h"
 #include "utility/visualization.h"
 
 
 Estimator estimator;
 UWBManager uwb_manager;
+UWBTripletManager uwb_triplet_manager;
 
 std::condition_variable con;
 double current_time = -1;
@@ -193,6 +195,8 @@ void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
         m_estimator.lock();
         estimator.clearState();
         estimator.setParameter();
+        uwb_manager.clear();
+        uwb_triplet_manager.clear();
         m_estimator.unlock();
         current_time = -1;
         last_imu_t = 0;
@@ -217,6 +221,38 @@ void uwb_callback(const vins_estimator::UWBRangeConstPtr &uwb_msg)
     measurement.timestamp = uwb_msg->header.stamp.toSec();
     measurement.anchor_id = uwb_msg->anchor_id;
     measurement.range = uwb_msg->range;
+
+    if (USE_UVINS_UWB_PIPELINE)
+    {
+        UWBTriplet accepted_triplet;
+        UWBTriplet filtered_triplet;
+        if (uwb_triplet_manager.addRangeMeasurement(measurement, &accepted_triplet, &filtered_triplet))
+        {
+            ROS_INFO_THROTTLE(1.0,
+                              "UVINS UWB triplet accepted t: %.9f D0: %.3f D1: %.3f D2: %.3f",
+                              accepted_triplet.timestamp,
+                              accepted_triplet.ranges[0],
+                              accepted_triplet.ranges[1],
+                              accepted_triplet.ranges[2]);
+            ROS_INFO_THROTTLE(1.0,
+                              "UVINS UWB mean filtered t: %.9f D0: %.3f D1: %.3f D2: %.3f buffer_size: %lu",
+                              filtered_triplet.timestamp,
+                              filtered_triplet.ranges[0],
+                              filtered_triplet.ranges[1],
+                              filtered_triplet.ranges[2],
+                              static_cast<unsigned long>(uwb_triplet_manager.tripletBufferSize()));
+        }
+        else
+        {
+            ROS_DEBUG_THROTTLE(1.0,
+                               "UVINS UWB triplet incomplete or invalid t: %.9f anchor_id: %d range: %.3f partial_size: %lu min_range: %.3f",
+                               measurement.timestamp, measurement.anchor_id, measurement.range,
+                               static_cast<unsigned long>(uwb_triplet_manager.partialBufferSize()),
+                               UWB_MIN_RANGE);
+        }
+        return;
+    }
+
     uwb_manager.addMeasurement(measurement);
     ROS_INFO_THROTTLE(1.0, "UWB received t: %.9f anchor_id: %d range: %.3f buffer_size: %lu",
                       measurement.timestamp, measurement.anchor_id, measurement.range,
@@ -333,56 +369,88 @@ void process()
             {
                 const double image_timestamp = img_msg->header.stamp.toSec();
                 std::vector<UWBMeasurement> aligned_uwb_measurements;
-                ROS_DEBUG_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
-                                   image_timestamp, USE_UWB,
-                                   static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
-                if (USE_UWB_INTERPOLATION)
+                if (USE_UVINS_UWB_PIPELINE)
                 {
-                    std::vector<UWBMeasurement> interpolated_measurements;
-                    if (uwb_manager.getInterpolatedMeasurementsAt(image_timestamp, interpolated_measurements))
+                    UWBTriplet aligned_triplet;
+                    if (uwb_triplet_manager.processUWBAt(image_timestamp, aligned_triplet))
                     {
-                        aligned_uwb_measurements = interpolated_measurements;
-                        for (const auto &uwb : interpolated_measurements)
+                        aligned_uwb_measurements.reserve(3);
+                        for (int anchor_id = 0; anchor_id < 3; ++anchor_id)
                         {
-                            ROS_INFO_THROTTLE(1.0, "UWB interpolated image_t: %.9f anchor_id: %d range: %.3f method: linear",
-                                              image_timestamp, uwb.anchor_id, uwb.range);
+                            UWBMeasurement aligned_measurement;
+                            aligned_measurement.timestamp = image_timestamp;
+                            aligned_measurement.anchor_id = anchor_id;
+                            aligned_measurement.range = aligned_triplet.ranges[anchor_id];
+                            aligned_uwb_measurements.push_back(aligned_measurement);
                         }
+                        ROS_INFO_THROTTLE(1.0,
+                                          "UVINS UWB aligned image_t: %.9f D0: %.3f D1: %.3f D2: %.3f method: cubic",
+                                          image_timestamp,
+                                          aligned_triplet.ranges[0],
+                                          aligned_triplet.ranges[1],
+                                          aligned_triplet.ranges[2]);
                     }
                     else
                     {
-                        ROS_DEBUG_THROTTLE(1.0, "No UWB interpolation image_t: %.9f buffer_size: %lu interp_max_gap: %.3f use_interpolation: %d",
-                                           image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                           UWB_INTERP_MAX_GAP, USE_UWB_INTERPOLATION);
+                        ROS_DEBUG_THROTTLE(1.0,
+                                           "UVINS UWB pipeline waiting for 4 UWB triplets or valid interpolation image_t: %.9f triplet_buffer_size: %lu",
+                                           image_timestamp,
+                                           static_cast<unsigned long>(uwb_triplet_manager.tripletBufferSize()));
                     }
                 }
                 else
                 {
-                    const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
-                    if (!uwb_measurements.empty())
+                    ROS_DEBUG_THROTTLE(1.0, "Feature frame t: %.9f, USE_UWB: %d, UWB buffer_size: %lu, max_interval: %.3f",
+                                       image_timestamp, USE_UWB,
+                                       static_cast<unsigned long>(uwb_manager.size()), UWB_MAX_INTERVAL);
+                    if (USE_UWB_INTERPOLATION)
                     {
-                        aligned_uwb_measurements = uwb_measurements;
-                        for (const auto &uwb : uwb_measurements)
+                        std::vector<UWBMeasurement> interpolated_measurements;
+                        if (uwb_manager.getInterpolatedMeasurementsAt(image_timestamp, interpolated_measurements))
                         {
-                            ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
-                                              image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
-                                              uwb.anchor_id, uwb.range);
+                            aligned_uwb_measurements = interpolated_measurements;
+                            for (const auto &uwb : interpolated_measurements)
+                            {
+                                ROS_INFO_THROTTLE(1.0, "UWB interpolated image_t: %.9f anchor_id: %d range: %.3f method: linear",
+                                                  image_timestamp, uwb.anchor_id, uwb.range);
+                            }
+                        }
+                        else
+                        {
+                            ROS_DEBUG_THROTTLE(1.0, "No UWB interpolation image_t: %.9f buffer_size: %lu interp_max_gap: %.3f use_interpolation: %d",
+                                               image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                               UWB_INTERP_MAX_GAP, USE_UWB_INTERPOLATION);
                         }
                     }
                     else
                     {
-                        UWBMeasurement nearest_uwb;
-                        double nearest_dt = 0.0;
-                        if (uwb_manager.getNearestMeasurement(image_timestamp, nearest_uwb, nearest_dt))
+                        const auto uwb_measurements = uwb_manager.getMeasurementsNear(image_timestamp);
+                        if (!uwb_measurements.empty())
                         {
-                            ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
-                                               image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                               nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
+                            aligned_uwb_measurements = uwb_measurements;
+                            for (const auto &uwb : uwb_measurements)
+                            {
+                                ROS_INFO_THROTTLE(1.0, "UWB match image_t: %.9f uwb_t: %.9f dt: %.6f anchor_id: %d range: %.3f",
+                                                  image_timestamp, uwb.timestamp, uwb.timestamp - image_timestamp,
+                                                  uwb.anchor_id, uwb.range);
+                            }
                         }
                         else
                         {
-                            ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
-                                               image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
-                                               UWB_MAX_INTERVAL);
+                            UWBMeasurement nearest_uwb;
+                            double nearest_dt = 0.0;
+                            if (uwb_manager.getNearestMeasurement(image_timestamp, nearest_uwb, nearest_dt))
+                            {
+                                ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu nearest_uwb_t: %.9f nearest_dt: %.6f max_interval: %.3f",
+                                                   image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                                   nearest_uwb.timestamp, nearest_dt, UWB_MAX_INTERVAL);
+                            }
+                            else
+                            {
+                                ROS_DEBUG_THROTTLE(1.0, "No UWB match image_t: %.9f buffer_size: %lu max_interval: %.3f",
+                                                   image_timestamp, static_cast<unsigned long>(uwb_manager.size()),
+                                                   UWB_MAX_INTERVAL);
+                            }
                         }
                     }
                 }
@@ -439,6 +507,9 @@ int main(int argc, char **argv)
     {
         uwb_manager.setMaxInterval(UWB_MAX_INTERVAL);
         uwb_manager.setInterpolationMaxGap(UWB_INTERP_MAX_GAP);
+        uwb_triplet_manager.setMinRange(UWB_MIN_RANGE);
+        uwb_triplet_manager.setMeanFilterWindowSize(UWB_MEAN_FILTER_WINDOW_SIZE);
+        uwb_triplet_manager.setInterpolationWindowSize(UWB_INTERP_WINDOW_SIZE);
         sub_uwb = n.subscribe(UWB_TOPIC, 2000, uwb_callback);
         ROS_INFO_STREAM("subscribe UWB topic: " << UWB_TOPIC);
     }

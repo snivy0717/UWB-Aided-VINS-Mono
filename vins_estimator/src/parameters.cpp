@@ -27,11 +27,17 @@ double UWB_NOISE = 0.1;
 double UWB_MAX_INTERVAL = 0.05;
 int USE_UWB_INTERPOLATION = 1;
 double UWB_INTERP_MAX_GAP = 0.2;
+int USE_UVINS_UWB_PIPELINE = 1;
+double UWB_MIN_RANGE = 0.2;
+int UWB_MEAN_FILTER_WINDOW_SIZE = 4;
+int UWB_INTERP_WINDOW_SIZE = 4;
 int USE_UWB_FACTOR = 0;
 int USE_UWB_CORRECTION = 0;
 int UWB_CORRECTION_DEBUG_ONLY = 1;
 int UWB_CORRECTION_MIN_ANCHORS = 3;
 double UWB_CORRECTION_MAX_NORM = 2.0;
+int USE_UWB_CORRECTED_OUTPUT = 1;
+double UWB_CORRECTED_OUTPUT_MAX_NORM = 2.0;
 int UWB_WORLD_ALIGNED = 0;
 double UWB_WORLD_TO_VINS_YAW = 0.0;
 Eigen::Vector3d UWB_WORLD_TO_VINS_TRANSLATION{0.0, 0.0, 0.0};
@@ -75,11 +81,17 @@ void readParameters(ros::NodeHandle &n)
     UWB_MAX_INTERVAL = 0.05;
     USE_UWB_INTERPOLATION = 1;
     UWB_INTERP_MAX_GAP = 0.2;
+    USE_UVINS_UWB_PIPELINE = 1;
+    UWB_MIN_RANGE = 0.2;
+    UWB_MEAN_FILTER_WINDOW_SIZE = 4;
+    UWB_INTERP_WINDOW_SIZE = 4;
     USE_UWB_FACTOR = 0;
     USE_UWB_CORRECTION = 0;
     UWB_CORRECTION_DEBUG_ONLY = 1;
     UWB_CORRECTION_MIN_ANCHORS = 3;
     UWB_CORRECTION_MAX_NORM = 2.0;
+    USE_UWB_CORRECTED_OUTPUT = 1;
+    UWB_CORRECTED_OUTPUT_MAX_NORM = 2.0;
     UWB_WORLD_ALIGNED = 0;
     UWB_WORLD_TO_VINS_YAW = 0.0;
     UWB_WORLD_TO_VINS_TRANSLATION.setZero();
@@ -100,6 +112,14 @@ void readParameters(ros::NodeHandle &n)
         USE_UWB_INTERPOLATION = static_cast<int>(fsSettings["use_uwb_interpolation"]);
     if (!fsSettings["uwb_interp_max_gap"].empty())
         UWB_INTERP_MAX_GAP = static_cast<double>(fsSettings["uwb_interp_max_gap"]);
+    if (!fsSettings["use_uvins_uwb_pipeline"].empty())
+        USE_UVINS_UWB_PIPELINE = static_cast<int>(fsSettings["use_uvins_uwb_pipeline"]);
+    if (!fsSettings["uwb_min_range"].empty())
+        UWB_MIN_RANGE = static_cast<double>(fsSettings["uwb_min_range"]);
+    if (!fsSettings["uwb_mean_filter_window_size"].empty())
+        UWB_MEAN_FILTER_WINDOW_SIZE = static_cast<int>(fsSettings["uwb_mean_filter_window_size"]);
+    if (!fsSettings["uwb_interp_window_size"].empty())
+        UWB_INTERP_WINDOW_SIZE = static_cast<int>(fsSettings["uwb_interp_window_size"]);
     if (!fsSettings["use_uwb_factor"].empty())
         USE_UWB_FACTOR = static_cast<int>(fsSettings["use_uwb_factor"]);
     if (!fsSettings["use_uwb_correction"].empty())
@@ -110,6 +130,10 @@ void readParameters(ros::NodeHandle &n)
         UWB_CORRECTION_MIN_ANCHORS = static_cast<int>(fsSettings["uwb_correction_min_anchors"]);
     if (!fsSettings["uwb_correction_max_norm"].empty())
         UWB_CORRECTION_MAX_NORM = static_cast<double>(fsSettings["uwb_correction_max_norm"]);
+    if (!fsSettings["use_uwb_corrected_output"].empty())
+        USE_UWB_CORRECTED_OUTPUT = static_cast<int>(fsSettings["use_uwb_corrected_output"]);
+    if (!fsSettings["uwb_corrected_output_max_norm"].empty())
+        UWB_CORRECTED_OUTPUT_MAX_NORM = static_cast<double>(fsSettings["uwb_corrected_output_max_norm"]);
     if (!fsSettings["uwb_world_aligned"].empty())
         UWB_WORLD_ALIGNED = static_cast<int>(fsSettings["uwb_world_aligned"]);
     if (!fsSettings["uwb_world_to_vins_yaw"].empty())
@@ -203,9 +227,14 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO_STREAM("UWB_TOPIC: " << UWB_TOPIC);
         ROS_INFO("UWB_NOISE: %f UWB_MAX_INTERVAL: %f", UWB_NOISE, UWB_MAX_INTERVAL);
         ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f", USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP);
+        ROS_INFO("USE_UVINS_UWB_PIPELINE: %d UWB_MIN_RANGE: %f UWB_MEAN_FILTER_WINDOW_SIZE: %d UWB_INTERP_WINDOW_SIZE: %d",
+                 USE_UVINS_UWB_PIPELINE, UWB_MIN_RANGE,
+                 UWB_MEAN_FILTER_WINDOW_SIZE, UWB_INTERP_WINDOW_SIZE);
         ROS_INFO("USE_UWB_FACTOR: %d UWB_WORLD_ALIGNED: %d", USE_UWB_FACTOR, UWB_WORLD_ALIGNED);
         ROS_INFO("USE_UWB_CORRECTION: %d UWB_CORRECTION_DEBUG_ONLY: %d", USE_UWB_CORRECTION, UWB_CORRECTION_DEBUG_ONLY);
         ROS_INFO("UWB_CORRECTION_MIN_ANCHORS: %d UWB_CORRECTION_MAX_NORM: %f", UWB_CORRECTION_MIN_ANCHORS, UWB_CORRECTION_MAX_NORM);
+        ROS_INFO("USE_UWB_CORRECTED_OUTPUT: %d UWB_CORRECTED_OUTPUT_MAX_NORM: %f",
+                 USE_UWB_CORRECTED_OUTPUT, UWB_CORRECTED_OUTPUT_MAX_NORM);
         if (USE_UWB_CORRECTION && !UWB_CORRECTION_DEBUG_ONLY)
             ROS_WARN("use_uwb_correction is enabled with debug_only=0; applying correction is not recommended before real-data and coordinate-frame validation");
         ROS_INFO("UWB_WORLD_TO_VINS_YAW: %f", UWB_WORLD_TO_VINS_YAW);

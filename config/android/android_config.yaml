@@ -29,11 +29,17 @@ uwb_noise: 0.1
 uwb_max_interval: 0.3
 use_uwb_interpolation: 1
 uwb_interp_max_gap: 0.6
+use_uvins_uwb_pipeline: 1
+uwb_min_range: 0.2
+uwb_mean_filter_window_size: 4
+uwb_interp_window_size: 4
 use_uwb_factor: 0
 use_uwb_correction: 1
 uwb_correction_debug_only: 1
 uwb_correction_min_anchors: 3
 uwb_correction_max_norm: 2.0
+use_uwb_corrected_output: 1
+uwb_corrected_output_max_norm: 2.0
 
 # UVINS official anchors from uwb.yaml
 uwb_anchor_positions:
