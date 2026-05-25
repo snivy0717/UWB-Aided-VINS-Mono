@@ -41,6 +41,14 @@ double UWB_CORRECTED_OUTPUT_MAX_NORM = 2.0;
 double UVINS_CORRECTION_MAX_NORM = 2.0;
 double UVINS_CORRECTION_MAX_FINAL_COST = 100.0;
 double UVINS_CORRECTION_MAX_DELTA_NORM = 0.8;
+double UVINS_CORRECTED_OUTPUT_SMOOTHING_ALPHA = 0.8;
+double UVINS_CORRECTED_OUTPUT_MAX_DELTA_NORM = 0.10;
+double UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME = 0.5;
+double UVINS_CORRECTION_MAX_ABS_Z = 0.5;
+double UVINS_CORRECTED_OUTPUT_DAMP_Z = 0.5;
+double UVINS_UWB_RESIDUAL_WEIGHT = 1.0;
+double UVINS_VIO_RESIDUAL_WEIGHT = 5.0;
+double UVINS_SMOOTH_RESIDUAL_WEIGHT = 20.0;
 int USE_UVINS_CORRECTED_OUTPUT = 1;
 int UWB_WORLD_ALIGNED = 0;
 double UWB_WORLD_TO_VINS_YAW = 0.0;
@@ -99,6 +107,14 @@ void readParameters(ros::NodeHandle &n)
     UVINS_CORRECTION_MAX_NORM = 2.0;
     UVINS_CORRECTION_MAX_FINAL_COST = 100.0;
     UVINS_CORRECTION_MAX_DELTA_NORM = 0.8;
+    UVINS_CORRECTED_OUTPUT_SMOOTHING_ALPHA = 0.8;
+    UVINS_CORRECTED_OUTPUT_MAX_DELTA_NORM = 0.10;
+    UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME = 0.5;
+    UVINS_CORRECTION_MAX_ABS_Z = 0.5;
+    UVINS_CORRECTED_OUTPUT_DAMP_Z = 0.5;
+    UVINS_UWB_RESIDUAL_WEIGHT = 1.0;
+    UVINS_VIO_RESIDUAL_WEIGHT = 5.0;
+    UVINS_SMOOTH_RESIDUAL_WEIGHT = 20.0;
     USE_UVINS_CORRECTED_OUTPUT = 1;
     UWB_WORLD_ALIGNED = 0;
     UWB_WORLD_TO_VINS_YAW = 0.0;
@@ -148,6 +164,22 @@ void readParameters(ros::NodeHandle &n)
         UVINS_CORRECTION_MAX_FINAL_COST = static_cast<double>(fsSettings["uvins_correction_max_final_cost"]);
     if (!fsSettings["uvins_correction_max_delta_norm"].empty())
         UVINS_CORRECTION_MAX_DELTA_NORM = static_cast<double>(fsSettings["uvins_correction_max_delta_norm"]);
+    if (!fsSettings["uvins_corrected_output_smoothing_alpha"].empty())
+        UVINS_CORRECTED_OUTPUT_SMOOTHING_ALPHA = static_cast<double>(fsSettings["uvins_corrected_output_smoothing_alpha"]);
+    if (!fsSettings["uvins_corrected_output_max_delta_norm"].empty())
+        UVINS_CORRECTED_OUTPUT_MAX_DELTA_NORM = static_cast<double>(fsSettings["uvins_corrected_output_max_delta_norm"]);
+    if (!fsSettings["uvins_corrected_output_max_reuse_time"].empty())
+        UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME = static_cast<double>(fsSettings["uvins_corrected_output_max_reuse_time"]);
+    if (!fsSettings["uvins_correction_max_abs_z"].empty())
+        UVINS_CORRECTION_MAX_ABS_Z = static_cast<double>(fsSettings["uvins_correction_max_abs_z"]);
+    if (!fsSettings["uvins_corrected_output_damp_z"].empty())
+        UVINS_CORRECTED_OUTPUT_DAMP_Z = static_cast<double>(fsSettings["uvins_corrected_output_damp_z"]);
+    if (!fsSettings["uvins_uwb_residual_weight"].empty())
+        UVINS_UWB_RESIDUAL_WEIGHT = static_cast<double>(fsSettings["uvins_uwb_residual_weight"]);
+    if (!fsSettings["uvins_vio_residual_weight"].empty())
+        UVINS_VIO_RESIDUAL_WEIGHT = static_cast<double>(fsSettings["uvins_vio_residual_weight"]);
+    if (!fsSettings["uvins_smooth_residual_weight"].empty())
+        UVINS_SMOOTH_RESIDUAL_WEIGHT = static_cast<double>(fsSettings["uvins_smooth_residual_weight"]);
     if (!fsSettings["use_uvins_corrected_output"].empty())
         USE_UVINS_CORRECTED_OUTPUT = static_cast<int>(fsSettings["use_uvins_corrected_output"]);
     if (!fsSettings["uwb_world_aligned"].empty())
@@ -254,6 +286,16 @@ void readParameters(ros::NodeHandle &n)
         ROS_INFO("USE_UVINS_CORRECTED_OUTPUT: %d UVINS_CORRECTION_MAX_NORM: %f UVINS_CORRECTION_MAX_FINAL_COST: %f UVINS_CORRECTION_MAX_DELTA_NORM: %f",
                  USE_UVINS_CORRECTED_OUTPUT, UVINS_CORRECTION_MAX_NORM,
                  UVINS_CORRECTION_MAX_FINAL_COST, UVINS_CORRECTION_MAX_DELTA_NORM);
+        ROS_INFO("UVINS output smoothing alpha: %f max_delta_norm: %f max_reuse_time: %f max_abs_z: %f damp_z: %f",
+                 UVINS_CORRECTED_OUTPUT_SMOOTHING_ALPHA,
+                 UVINS_CORRECTED_OUTPUT_MAX_DELTA_NORM,
+                 UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME,
+                 UVINS_CORRECTION_MAX_ABS_Z,
+                 UVINS_CORRECTED_OUTPUT_DAMP_Z);
+        ROS_INFO("UVINS residual weights uwb: %f vio: %f smooth: %f",
+                 UVINS_UWB_RESIDUAL_WEIGHT,
+                 UVINS_VIO_RESIDUAL_WEIGHT,
+                 UVINS_SMOOTH_RESIDUAL_WEIGHT);
         if (USE_UWB_CORRECTION && !UWB_CORRECTION_DEBUG_ONLY)
             ROS_WARN("use_uwb_correction is enabled with debug_only=0; applying correction is not recommended before real-data and coordinate-frame validation");
         ROS_INFO("UWB_WORLD_TO_VINS_YAW: %f", UWB_WORLD_TO_VINS_YAW);

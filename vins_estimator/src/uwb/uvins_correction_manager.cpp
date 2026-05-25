@@ -15,9 +15,11 @@ struct UWBErr
            const Eigen::Vector3d &p_uwb_imu,
            const std::vector<Eigen::Vector3d> &anchors,
            const Eigen::Vector3d &ranges,
-           const Eigen::Matrix3d &information)
+           const Eigen::Matrix3d &information,
+           double weight)
         : vio_p_(vio_p), tag_offset_(vio_q * p_uwb_imu),
-          anchors_(anchors), ranges_(ranges), information_(information)
+          anchors_(anchors), ranges_(ranges), information_(information),
+          sqrt_weight_(std::sqrt(std::max(weight, 0.0)))
     {
     }
 
@@ -39,6 +41,7 @@ struct UWBErr
             for (int c = 0; c < 3; ++c)
                 residual[0] += dis_err[r] * T(information_(r, c)) * dis_err[c];
         }
+        residual[0] *= T(sqrt_weight_);
         return true;
     }
 
@@ -47,12 +50,13 @@ struct UWBErr
     std::vector<Eigen::Vector3d> anchors_;
     Eigen::Vector3d ranges_;
     Eigen::Matrix3d information_;
+    double sqrt_weight_;
 };
 
 struct VIOErr
 {
-    explicit VIOErr(const Eigen::Matrix3d &information)
-        : information_(information)
+    VIOErr(const Eigen::Matrix3d &information, double weight)
+        : information_(information), sqrt_weight_(std::sqrt(std::max(weight, 0.0)))
     {
     }
 
@@ -65,18 +69,22 @@ struct VIOErr
             for (int c = 0; c < 3; ++c)
                 residual[0] += dP[r] * T(information_(r, c)) * dP[c];
         }
+        residual[0] *= T(sqrt_weight_);
         return true;
     }
 
     Eigen::Matrix3d information_;
+    double sqrt_weight_;
 };
 
 struct SmoothErr
 {
     SmoothErr(const Eigen::Matrix3d &information,
               const Eigen::Vector3d &vio_p,
-              const Eigen::Vector3d &vio_p_prev)
-        : information_(information), vio_p_(vio_p), vio_p_prev_(vio_p_prev)
+              const Eigen::Vector3d &vio_p_prev,
+              double weight)
+        : information_(information), vio_p_(vio_p), vio_p_prev_(vio_p_prev),
+          sqrt_weight_(std::sqrt(std::max(weight, 0.0)))
     {
     }
 
@@ -93,12 +101,14 @@ struct SmoothErr
             for (int c = 0; c < 3; ++c)
                 residual[0] += smooth_err[r] * T(information_(r, c)) * smooth_err[c];
         }
+        residual[0] *= T(sqrt_weight_);
         return true;
     }
 
     Eigen::Matrix3d information_;
     Eigen::Vector3d vio_p_;
     Eigen::Vector3d vio_p_prev_;
+    double sqrt_weight_;
 };
 }
 
@@ -210,12 +220,14 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
         ceres::LossFunction *uwb_loss = new ceres::HuberLoss(0.15);
         ceres::CostFunction *uwb_cost =
             new ceres::AutoDiffCostFunction<UWBErr, 1, 3>(
-                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, UWB_ANCHOR_POSITIONS, Us[i], p_uwb_inv));
+                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, UWB_ANCHOR_POSITIONS, Us[i],
+                           p_uwb_inv, UVINS_UWB_RESIDUAL_WEIGHT));
         problem.AddResidualBlock(uwb_cost, uwb_loss, dPs[i].data());
 
         ceres::LossFunction *vio_loss = new ceres::HuberLoss(0.15);
         ceres::CostFunction *vio_cost =
-            new ceres::AutoDiffCostFunction<VIOErr, 1, 3>(new VIOErr(p_vio_inv));
+            new ceres::AutoDiffCostFunction<VIOErr, 1, 3>(
+                new VIOErr(p_vio_inv, UVINS_VIO_RESIDUAL_WEIGHT));
         problem.AddResidualBlock(vio_cost, vio_loss, dPs[i].data());
 
         if (i > 0)
@@ -229,7 +241,8 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
             ceres::LossFunction *smooth_loss = new ceres::HuberLoss(0.15);
             ceres::CostFunction *smooth_cost =
                 new ceres::AutoDiffCostFunction<SmoothErr, 1, 3, 3>(
-                    new SmoothErr(p_vio_pre_inv, Vps[i], Vps[i - 1]));
+                    new SmoothErr(p_vio_pre_inv, Vps[i], Vps[i - 1],
+                                  UVINS_SMOOTH_RESIDUAL_WEIGHT));
             problem.AddResidualBlock(smooth_cost, smooth_loss, dPs[i].data(), dPs[i - 1].data());
         }
     }

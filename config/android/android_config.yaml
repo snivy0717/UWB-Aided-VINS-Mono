@@ -44,6 +44,14 @@ use_uvins_corrected_output: 1
 uvins_correction_max_norm: 2.0
 uvins_correction_max_final_cost: 100.0
 uvins_correction_max_delta_norm: 0.8
+uvins_corrected_output_smoothing_alpha: 0.8
+uvins_corrected_output_max_delta_norm: 0.10
+uvins_corrected_output_max_reuse_time: 0.5
+uvins_correction_max_abs_z: 0.5
+uvins_corrected_output_damp_z: 0.5
+uvins_uwb_residual_weight: 1.0
+uvins_vio_residual_weight: 5.0
+uvins_smooth_residual_weight: 20.0
 
 # UVINS official anchors from uwb.yaml
 uwb_anchor_positions:

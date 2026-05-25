@@ -103,6 +103,11 @@ class Estimator
     double latest_uwb_correction_timestamp;
     bool uvins_has_previous_valid_correction;
     Vector3d uvins_previous_valid_correction;
+    bool uvins_has_output_correction;
+    Vector3d uvins_output_correction_dP;
+    Vector3d uvins_last_optimized_correction_dP;
+    double uvins_last_valid_correction_timestamp;
+    double uvins_last_output_delta_norm;
     UVINSCorrectionManager uvins_correction_manager;
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];

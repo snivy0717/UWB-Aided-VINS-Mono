@@ -273,6 +273,34 @@ whether the current output used a new correction or a reused one.
 The corrected path remains an external output only; `dP` is not written back to
 VINS internal `Ps`, `Rs`, `Vs`, `Bas`, or `Bgs`.
 
+## UVINS corrected output stabilization
+
+The UWB correction is still produced by the UVINS-style correction window
+optimization. The original VINS-Mono trajectory remains unchanged, and the
+yellow corrected path is only an external output:
+
+```text
+p_corrected = p_vio + output_dP
+```
+
+To avoid visible jumps when `optimized_dP` changes abruptly, the output layer
+keeps a separate `output_dP`:
+
+- The first accepted optimized correction initializes `output_dP`.
+- Later accepted corrections are blended with
+  `uvins_corrected_output_smoothing_alpha`.
+- `uvins_corrected_output_max_delta_norm` limits the maximum correction change
+  applied to one output update.
+- `uvins_corrected_output_max_reuse_time` stops publishing the corrected path
+  if no valid optimized correction has arrived recently enough.
+- `uvins_correction_max_abs_z` rejects weakly observable vertical corrections
+  that are too large.
+- `uvins_corrected_output_damp_z` damps the vertical component in the output
+  correction.
+
+These stabilization checks do not write anything back to VINS-Mono internal
+`Ps`, `Rs`, `Vs`, `Bas`, or `Bgs`.
+
 ## UWB corrected output mode
 
 In `uwb_fusion_mode: 1`, the estimator publishes two trajectories:

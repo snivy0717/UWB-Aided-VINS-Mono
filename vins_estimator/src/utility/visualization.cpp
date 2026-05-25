@@ -22,8 +22,6 @@ CameraPoseVisualization cameraposevisual(0, 1, 0, 1);
 CameraPoseVisualization keyframebasevisual(0.0, 0.0, 1.0, 1.0);
 static double sum_of_path = 0;
 static Vector3d last_path(0.0, 0.0, 0.0);
-static bool has_uvins_dP = false;
-static Vector3d current_uvins_dP(0.0, 0.0, 0.0);
 
 void registerPub(ros::NodeHandle &n)
 {
@@ -145,18 +143,19 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
         {
             if (USE_UVINS_UWB_PIPELINE)
             {
-                bool reused_uvins_dP = true;
-                if (USE_UVINS_CORRECTED_OUTPUT && estimator.latest_uwb_correction_valid)
-                {
-                    current_uvins_dP = estimator.latest_uwb_correction_dP;
-                    has_uvins_dP = true;
-                    reused_uvins_dP = false;
-                }
+                const double dt_since_valid = estimator.uvins_has_output_correction ?
+                    header.stamp.toSec() - estimator.uvins_last_valid_correction_timestamp : -1.0;
+                const bool raw_fallback = !estimator.uvins_has_output_correction ||
+                    dt_since_valid > UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME;
+                const bool reused_uvins_dP = estimator.uvins_has_output_correction &&
+                    !estimator.latest_uwb_correction_valid;
 
-                if (USE_UVINS_CORRECTED_OUTPUT && has_uvins_dP)
+                if (USE_UVINS_CORRECTED_OUTPUT &&
+                    estimator.uvins_has_output_correction &&
+                    !raw_fallback)
                 {
                     const Vector3d raw_position = estimator.Ps[WINDOW_SIZE];
-                    const Vector3d corrected_position = raw_position + current_uvins_dP;
+                    const Vector3d corrected_position = raw_position + estimator.uvins_output_correction_dP;
 
                     nav_msgs::Odometry corrected_odometry = odometry;
                     corrected_odometry.pose.pose.position.x = corrected_position.x();
@@ -174,16 +173,28 @@ void pubOdometry(const Estimator &estimator, const std_msgs::Header &header)
                     pub_path_uwb_corrected.publish(path_uwb_corrected);
 
                     ROS_INFO_THROTTLE(1.0,
-                                      "UVINS corrected output t: %.9f reused: %d raw_p: %.4f %.4f %.4f dP_used: %.4f %.4f %.4f corrected_p: %.4f %.4f %.4f",
+                                      "UVINS corrected output t: %.9f raw_p: %.4f %.4f %.4f optimized_dP: %.4f %.4f %.4f output_dP: %.4f %.4f %.4f corrected_p: %.4f %.4f %.4f reused: %d raw_fallback: 0 dt_since_valid: %.4f output_delta_norm: %.4f",
                                       header.stamp.toSec(),
-                                      reused_uvins_dP ? 1 : 0,
                                       raw_position.x(), raw_position.y(), raw_position.z(),
-                                      current_uvins_dP.x(), current_uvins_dP.y(), current_uvins_dP.z(),
-                                      corrected_position.x(), corrected_position.y(), corrected_position.z());
+                                      estimator.uvins_last_optimized_correction_dP.x(),
+                                      estimator.uvins_last_optimized_correction_dP.y(),
+                                      estimator.uvins_last_optimized_correction_dP.z(),
+                                      estimator.uvins_output_correction_dP.x(),
+                                      estimator.uvins_output_correction_dP.y(),
+                                      estimator.uvins_output_correction_dP.z(),
+                                      corrected_position.x(), corrected_position.y(), corrected_position.z(),
+                                      reused_uvins_dP ? 1 : 0,
+                                      dt_since_valid,
+                                      estimator.uvins_last_output_delta_norm);
                 }
                 else
                 {
-                    ROS_INFO_THROTTLE(1.0, "UVINS corrected output waiting for first valid optimized dP");
+                    ROS_INFO_THROTTLE(1.0,
+                                      "UVINS corrected output stopped t: %.9f raw_fallback: 1 has_output_dP: %d dt_since_valid: %.4f max_reuse_time: %.4f",
+                                      header.stamp.toSec(),
+                                      estimator.uvins_has_output_correction ? 1 : 0,
+                                      dt_since_valid,
+                                      UVINS_CORRECTED_OUTPUT_MAX_REUSE_TIME);
                 }
             }
             else if (estimator.latest_uwb_correction_valid &&
