@@ -212,6 +212,21 @@ void relocalization_callback(const sensor_msgs::PointCloudConstPtr &points_msg)
     m_buf.unlock();
 }
 
+/*
+ * UWB ROS 回调函数。
+ *
+ * 输入 topic：
+ *   /uwb/range
+ *
+ * 每条消息只包含一个 anchor 的测距：
+ *   timestamp + anchor_id + range
+ *
+ * 当 USE_UVINS_UWB_PIPELINE = 1 时：
+ *   不直接把单条 range 送入 estimator，
+ *   而是先交给 UWBTripletManager，
+ *   等 D0、D1、D2 三个基站数据组装完成后，
+ *   再进行滤波和后续插值。
+ */
 void uwb_callback(const vins_estimator::UWBRangeConstPtr &uwb_msg)
 {
     if (!USE_UWB)
@@ -259,6 +274,17 @@ void uwb_callback(const vins_estimator::UWBRangeConstPtr &uwb_msg)
                       static_cast<unsigned long>(uwb_manager.size()));
 }
 
+/*
+ * 将 UWB 数据对齐到当前图像帧时间。
+ *
+ * VINS-Mono 后端是以图像帧为主节奏运行的，
+ * 因此 UWB 测距必须先对齐到 image_timestamp，
+ * 才能与该图像帧对应的 VIO 位姿一起用于 dP 修正。
+ *
+ * UVINS-style 模式下：
+ *   使用 UWBTripletManager::processUWBAt()
+ *   对 D0、D1、D2 分别做三次插值。
+ */
 // thread: visual-inertial odometry
 void process()
 {
@@ -455,6 +481,8 @@ void process()
                     }
                 }
                 if (!aligned_uwb_measurements.empty())
+                // 将已经对齐到图像时间的 UWB 三基站测距送入 Estimator。
+                // 后续会在 Estimator::processImage() 中参与类 UVINS correction 窗口优化。
                     estimator.inputUWB(image_timestamp, aligned_uwb_measurements);
             }
             estimator.processImage(image, img_msg->header);
@@ -510,6 +538,8 @@ int main(int argc, char **argv)
         uwb_triplet_manager.setMinRange(UWB_MIN_RANGE);
         uwb_triplet_manager.setMeanFilterWindowSize(UWB_MEAN_FILTER_WINDOW_SIZE);
         uwb_triplet_manager.setInterpolationWindowSize(UWB_INTERP_WINDOW_SIZE);
+        uwb_triplet_manager.setInterpolationMaxGap(UWB_INTERP_MAX_GAP);
+        uwb_triplet_manager.setInterpolationTimeTolerance(0.15);
         sub_uwb = n.subscribe(UWB_TOPIC, 2000, uwb_callback);
         ROS_INFO_STREAM("subscribe UWB topic: " << UWB_TOPIC);
     }

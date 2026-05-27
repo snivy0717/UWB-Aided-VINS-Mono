@@ -57,6 +57,8 @@ class UWBTripletManager
     void setMinRange(double min_range);
     void setMeanFilterWindowSize(int window_size);
     void setInterpolationWindowSize(int window_size);
+    void setInterpolationMaxGap(double max_gap);
+    void setInterpolationTimeTolerance(double tolerance);
     void clear();
 
     bool addRangeMeasurement(const UWBMeasurement &measurement,
@@ -76,6 +78,8 @@ class UWBTripletManager
     bool isComplete(const PendingTriplet &pending) const;
     bool isValidTriplet(const Eigen::Vector3d &ranges) const;
     const char *invalidTripletReason(const Eigen::Vector3d &ranges) const;
+    bool isInterpolationWindowValid(double query_time) const;
+    const char *interpolationWindowInvalidReason(double query_time) const;
     Eigen::Vector3d meanFilter(const Eigen::Vector3d &ranges);
     void inputUWB(const UWBTriplet &triplet);
     bool interpolateCubic(const std::array<Eigen::Vector2d, 4> &samples,
@@ -95,4 +99,6 @@ class UWBTripletManager
     double uwb_max_range_ = 30.0;
     int mean_filter_window_size_ = 4;
     int interp_window_size_ = 4;
+    double interp_max_gap_ = 0.6;
+    double interp_time_tolerance_ = 0.05;
 };

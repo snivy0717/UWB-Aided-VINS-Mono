@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include <ros/console.h>
 
@@ -34,6 +35,30 @@ void UWBTripletManager::setInterpolationWindowSize(int window_size)
     interp_window_size_ = window_size > 0 ? std::min(window_size, 4) : 4;
     while (static_cast<int>(uwb_buffer_.size()) > interp_window_size_)
         uwb_buffer_.pop_front();
+}
+
+void UWBTripletManager::setInterpolationMaxGap(double max_gap)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (max_gap > 0.0)
+    {
+        interp_max_gap_ = max_gap;
+        return;
+    }
+
+    ROS_WARN("Invalid UWB interpolation max gap %.3f, keep %.3f", max_gap, interp_max_gap_);
+}
+
+void UWBTripletManager::setInterpolationTimeTolerance(double tolerance)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (tolerance >= 0.0)
+    {
+        interp_time_tolerance_ = tolerance;
+        return;
+    }
+
+    ROS_WARN("Invalid UWB interpolation time tolerance %.3f, keep %.3f", tolerance, interp_time_tolerance_);
 }
 
 // 清空 UWBTripletManager 的所有缓存。
@@ -124,11 +149,44 @@ bool UWBTripletManager::processUWBAt(double vio_time, UWBTriplet &aligned_triple
 {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (!first_time_initialized_ || static_cast<int>(uwb_buffer_.size()) != interp_window_size_ ||
-        interp_window_size_ != 4)
-        return false;
+    const double query_time = first_time_initialized_ ? vio_time - first_time_ : 0.0;
+    const double unavailable_time = std::numeric_limits<double>::quiet_NaN();
+    const double t0 = uwb_buffer_.size() > 0 ? uwb_buffer_[0].timestamp : unavailable_time;
+    const double t1 = uwb_buffer_.size() > 1 ? uwb_buffer_[1].timestamp : unavailable_time;
+    const double t2 = uwb_buffer_.size() > 2 ? uwb_buffer_[2].timestamp : unavailable_time;
+    const double t3 = uwb_buffer_.size() > 3 ? uwb_buffer_[3].timestamp : unavailable_time;
 
-    const double query_time = vio_time - first_time_;
+    const char *skip_reason = nullptr;
+    if (!first_time_initialized_)
+    {
+        skip_reason = "not enough UWB samples";
+    }
+    else if (interp_window_size_ != 4)
+    {
+        skip_reason = "unexpected UWB sample count";
+    }
+    else
+    {
+        skip_reason = interpolationWindowInvalidReason(query_time);
+    }
+
+    if (skip_reason)
+    {
+        ROS_WARN_THROTTLE(1.0,
+                          "UVINS UWB interpolation skipped vio_time: %.9f query_time: %.9f buffer_size: %lu sample_t: [%.9f %.9f %.9f %.9f] interp_max_gap: %.3f interp_time_tolerance: %.3f reason: %s",
+                          vio_time,
+                          query_time,
+                          static_cast<unsigned long>(uwb_buffer_.size()),
+                          t0,
+                          t1,
+                          t2,
+                          t3,
+                          interp_max_gap_,
+                          interp_time_tolerance_,
+                          skip_reason);
+        return false;
+    }
+
     std::array<Eigen::Vector2d, 4> d0;
     std::array<Eigen::Vector2d, 4> d1;
     std::array<Eigen::Vector2d, 4> d2;
@@ -147,6 +205,17 @@ bool UWBTripletManager::processUWBAt(double vio_time, UWBTriplet &aligned_triple
         !interpolateCubic(d1, query_time, range1) ||
         !interpolateCubic(d2, query_time, range2))
     {
+        ROS_WARN_THROTTLE(1.0,
+                          "UVINS UWB interpolation skipped vio_time: %.9f query_time: %.9f buffer_size: %lu sample_t: [%.9f %.9f %.9f %.9f] interp_max_gap: %.3f interp_time_tolerance: %.3f reason: invalid interpolated range",
+                          vio_time,
+                          query_time,
+                          static_cast<unsigned long>(uwb_buffer_.size()),
+                          t0,
+                          t1,
+                          t2,
+                          t3,
+                          interp_max_gap_,
+                          interp_time_tolerance_);
         return false;
     }
 
@@ -209,6 +278,39 @@ const char *UWBTripletManager::invalidTripletReason(const Eigen::Vector3d &range
     return "unknown";
 }
 
+bool UWBTripletManager::isInterpolationWindowValid(double query_time) const
+{
+    return interpolationWindowInvalidReason(query_time) == nullptr;
+}
+
+const char *UWBTripletManager::interpolationWindowInvalidReason(double query_time) const
+{
+    if (uwb_buffer_.size() != 4)
+    {
+        if (uwb_buffer_.size() < 4)
+            return "not enough UWB samples";
+        return "unexpected UWB sample count";
+    }
+
+    for (int i = 1; i < 4; ++i)
+    {
+        const double gap = uwb_buffer_[i].timestamp - uwb_buffer_[i - 1].timestamp;
+        if (gap <= 0.0)
+            return "non-monotonic UWB timestamps";
+        if (gap > interp_max_gap_)
+            return "UWB sample gap too large";
+    }
+
+    if (!::isfinite(query_time) ||
+        query_time < uwb_buffer_.front().timestamp - interp_time_tolerance_ ||
+        query_time > uwb_buffer_.back().timestamp + interp_time_tolerance_)
+    {
+        return "query time outside interpolation window";
+    }
+
+    return nullptr;
+}
+
 // 对三基站 UWB 测距做滑动均值滤波。
 // 目的是抑制 UWB 短时随机噪声，避免单次测距跳变直接影响后续 dP 优化。
 Eigen::Vector3d UWBTripletManager::meanFilter(const Eigen::Vector3d &ranges)
@@ -255,6 +357,19 @@ bool UWBTripletManager::interpolateCubic(const std::array<Eigen::Vector2d, 4> &s
                                          double query_time,
                                          double &value) const
 {
+    for (int i = 1; i < 4; ++i)
+    {
+        if (!(samples[i][0] > samples[i - 1][0]))
+            return false;
+    }
+
+    if (!::isfinite(query_time) ||
+        query_time < samples[0][0] - interp_time_tolerance_ ||
+        query_time > samples[3][0] + interp_time_tolerance_)
+        return false;
+
+    const double eval_time = std::min(std::max(query_time, samples[0][0]), samples[3][0]);
+
     Eigen::Matrix4d align_matrix;
     Eigen::Vector4d align_vector;
 
@@ -272,12 +387,12 @@ bool UWBTripletManager::interpolateCubic(const std::array<Eigen::Vector2d, 4> &s
         return false;
 
     const Eigen::Vector4d para = align_matrix.inverse() * align_vector;
-    value = para[0] * query_time * query_time * query_time +
-            para[1] * query_time * query_time +
-            para[2] * query_time +
+    value = para[0] * eval_time * eval_time * eval_time +
+            para[1] * eval_time * eval_time +
+            para[2] * eval_time +
             para[3];
 
-    return ::isfinite(value);
+    return ::isfinite(value) && value > uwb_min_range_ && value <= uwb_max_range_;
 }
 
 // 删除长时间没有组装完成的 PendingTriplet。
