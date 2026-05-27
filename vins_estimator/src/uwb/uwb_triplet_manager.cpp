@@ -3,12 +3,18 @@
 #include <algorithm>
 #include <cmath>
 
+#include <ros/console.h>
+
+// 设置 UWB 最小有效测距。
+// 小于该阈值的测距会被认为无效，用于过滤明显错误的 UWB 数据。
 void UWBTripletManager::setMinRange(double min_range)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     uwb_min_range_ = min_range > 0.0 ? min_range : 0.2;
 }
 
+// 设置 UWB 三基站测距的滑动均值滤波窗口大小。
+// 窗口越大，输出越平滑，但响应会更慢。
 void UWBTripletManager::setMeanFilterWindowSize(int window_size)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -20,6 +26,8 @@ void UWBTripletManager::setMeanFilterWindowSize(int window_size)
     }
 }
 
+// 设置 UWB 插值窗口大小。
+// 当前三次插值要求使用 4 个 UWBTriplet，因此最大限制为 4。
 void UWBTripletManager::setInterpolationWindowSize(int window_size)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -28,6 +36,8 @@ void UWBTripletManager::setInterpolationWindowSize(int window_size)
         uwb_buffer_.pop_front();
 }
 
+// 清空 UWBTripletManager 的所有缓存。
+// 包括未组装完成的三基站数据、均值滤波窗口和插值 buffer。
 void UWBTripletManager::clear()
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -39,6 +49,20 @@ void UWBTripletManager::clear()
     first_time_ = 0.0;
 }
 
+// 添加一条单基站 UWB 测距。
+// 输入是一条 UWBMeasurement，即 timestamp + anchor_id + range。
+//
+// 处理流程：
+//   1. 根据 timestamp 找到对应的 PendingTriplet；
+//   2. 按 anchor_id 填入 D0 / D1 / D2；
+//   3. 如果三个 anchor 没有到齐，则继续等待；
+//   4. 如果三个 anchor 都到齐，则生成 raw_triplet；
+//   5. 检查 raw_triplet 是否有效；
+//   6. 对 raw_triplet 进行滑动均值滤波；
+//   7. 将滤波后的 triplet 放入 UWB 插值 buffer。
+//
+// accepted_triplet 返回未滤波的原始三基站测距；
+// filtered_triplet 返回均值滤波后的三基站测距。
 bool UWBTripletManager::addRangeMeasurement(const UWBMeasurement &measurement,
                                             UWBTriplet *accepted_triplet,
                                             UWBTriplet *filtered_triplet)
@@ -62,7 +86,18 @@ bool UWBTripletManager::addRangeMeasurement(const UWBMeasurement &measurement,
     pending_triplets_.erase(measurement.timestamp);
 
     if (!isValidTriplet(raw_triplet.ranges))
+    {
+        ROS_WARN_THROTTLE(1.0,
+                          "UVINS UWB triplet dropped t: %.9f D0: %.3f D1: %.3f D2: %.3f min_range: %.3f max_range: %.3f reason: %s",
+                          raw_triplet.timestamp,
+                          raw_triplet.ranges[0],
+                          raw_triplet.ranges[1],
+                          raw_triplet.ranges[2],
+                          uwb_min_range_,
+                          uwb_max_range_,
+                          invalidTripletReason(raw_triplet.ranges));
         return false;
+    }
 
     UWBTriplet filtered = raw_triplet;
     filtered.ranges = meanFilter(raw_triplet.ranges);
@@ -75,6 +110,16 @@ bool UWBTripletManager::addRangeMeasurement(const UWBMeasurement &measurement,
     return true;
 }
 
+// 将 UWB 三基站测距插值到指定的 VIO / 图像时间。
+//
+// VINS-Mono 是按图像帧时间进行后端处理的，
+// 但 UWB 与图像不是完全同步的。
+// 因此需要把 UWB 的 D0、D1、D2 分别插值到当前图像时间。
+//
+// 当前实现使用 4 个最近的 UWBTriplet 做三次插值。
+// 输出 aligned_triplet：
+//   timestamp = 当前图像时间；
+//   ranges    = 插值后的 [D0, D1, D2]。
 bool UWBTripletManager::processUWBAt(double vio_time, UWBTriplet &aligned_triplet) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -122,21 +167,50 @@ size_t UWBTripletManager::partialBufferSize() const
     return pending_triplets_.size();
 }
 
+// 判断同一时间戳下三个 anchor 的测距是否都已经收到。
+// 只有 D0、D1、D2 全部存在，才能形成一个完整的 UWBTriplet。
 bool UWBTripletManager::isComplete(const PendingTriplet &pending) const
 {
     return pending.has_anchor[0] && pending.has_anchor[1] && pending.has_anchor[2];
 }
 
+// 检查三基站 UWB 测距是否有效。
+// 每个 range 必须满足：
+//   1. 是有限数值；
+//   2. 大于最小有效测距 uwb_min_range_；
+//   3. 小于等于宽松上限 uwb_max_range_。
 bool UWBTripletManager::isValidTriplet(const Eigen::Vector3d &ranges) const
 {
     for (int i = 0; i < 3; ++i)
     {
-        if (!std::isfinite(ranges[i]) || ranges[i] <= uwb_min_range_)
+        if (!::isfinite(ranges[i]) || ranges[i] <= uwb_min_range_ || ranges[i] > uwb_max_range_)
             return false;
     }
     return true;
 }
 
+const char *UWBTripletManager::invalidTripletReason(const Eigen::Vector3d &ranges) const
+{
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!::isfinite(ranges[i]))
+            return "invalid range";
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ranges[i] <= uwb_min_range_)
+            return "below min range";
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (ranges[i] > uwb_max_range_)
+            return "above max range";
+    }
+    return "unknown";
+}
+
+// 对三基站 UWB 测距做滑动均值滤波。
+// 目的是抑制 UWB 短时随机噪声，避免单次测距跳变直接影响后续 dP 优化。
 Eigen::Vector3d UWBTripletManager::meanFilter(const Eigen::Vector3d &ranges)
 {
     mean_window_.push_back(ranges);
@@ -151,6 +225,10 @@ Eigen::Vector3d UWBTripletManager::meanFilter(const Eigen::Vector3d &ranges)
     return window_sum_ / static_cast<double>(mean_window_.size());
 }
 
+// 检查三基站 UWB 测距是否有效。
+// 每个 range 必须满足：
+//   1. 是有限数值；
+//   2. 大于最小有效测距 uwb_min_range_。
 void UWBTripletManager::inputUWB(const UWBTriplet &triplet)
 {
     if (!first_time_initialized_)
@@ -167,6 +245,12 @@ void UWBTripletManager::inputUWB(const UWBTriplet &triplet)
         uwb_buffer_.pop_front();
 }
 
+// 三次多项式插值。
+// 使用 4 个样本点拟合：
+//     range(t) = a * t^3 + b * t^2 + c * t + d
+//
+// 然后计算 query_time 对应的 range。
+// D0、D1、D2 会分别调用该函数进行插值。
 bool UWBTripletManager::interpolateCubic(const std::array<Eigen::Vector2d, 4> &samples,
                                          double query_time,
                                          double &value) const
@@ -193,9 +277,11 @@ bool UWBTripletManager::interpolateCubic(const std::array<Eigen::Vector2d, 4> &s
             para[2] * query_time +
             para[3];
 
-    return std::isfinite(value);
+    return ::isfinite(value);
 }
 
+// 删除长时间没有组装完成的 PendingTriplet。
+// 如果某个时间戳下长期只收到部分 anchor 数据，说明该组数据不完整，应该丢弃。
 void UWBTripletManager::pruneOldPartials(double latest_timestamp)
 {
     const double oldest_timestamp = latest_timestamp - 1.0;
