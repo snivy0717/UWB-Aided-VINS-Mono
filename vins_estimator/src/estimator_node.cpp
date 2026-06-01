@@ -256,6 +256,29 @@ void uwb_callback(const vins_estimator::UWBRangeConstPtr &uwb_msg)
                               filtered_triplet.ranges[1],
                               filtered_triplet.ranges[2],
                               static_cast<unsigned long>(uwb_triplet_manager.tripletBufferSize()));
+            if (USE_UVINS_ORIGINAL_TIME_ALIGNMENT)
+            {
+                double vio_time = 0.0;
+                Eigen::Vector3d vio_p = Eigen::Vector3d::Zero();
+                Eigen::Quaterniond vio_q = Eigen::Quaterniond::Identity();
+                {
+                    std::lock_guard<std::mutex> lock(m_state);
+                    vio_time = latest_time;
+                    vio_p = tmp_P;
+                    vio_q = tmp_Q;
+                }
+
+                UWBTriplet aligned_triplet;
+                if (vio_time > 0.0 && uwb_triplet_manager.processUWBAtUVINSOriginal(vio_time, aligned_triplet))
+                {
+                    std::lock_guard<std::mutex> lock(m_estimator);
+                    estimator.processUVINSAlignedCorrection(vio_time,
+                                                            aligned_triplet.ranges,
+                                                            vio_p,
+                                                            vio_q,
+                                                            true);
+                }
+            }
         }
         else
         {
@@ -397,31 +420,40 @@ void process()
                 std::vector<UWBMeasurement> aligned_uwb_measurements;
                 if (USE_UVINS_UWB_PIPELINE)
                 {
-                    UWBTriplet aligned_triplet;
-                    if (uwb_triplet_manager.processUWBAt(image_timestamp, aligned_triplet))
+                    if (USE_UVINS_ORIGINAL_TIME_ALIGNMENT)
                     {
-                        aligned_uwb_measurements.reserve(3);
-                        for (int anchor_id = 0; anchor_id < 3; ++anchor_id)
-                        {
-                            UWBMeasurement aligned_measurement;
-                            aligned_measurement.timestamp = image_timestamp;
-                            aligned_measurement.anchor_id = anchor_id;
-                            aligned_measurement.range = aligned_triplet.ranges[anchor_id];
-                            aligned_uwb_measurements.push_back(aligned_measurement);
-                        }
-                        ROS_INFO_THROTTLE(1.0,
-                                          "UVINS UWB aligned image_t: %.9f D0: %.3f D1: %.3f D2: %.3f method: cubic",
-                                          image_timestamp,
-                                          aligned_triplet.ranges[0],
-                                          aligned_triplet.ranges[1],
-                                          aligned_triplet.ranges[2]);
+                        ROS_DEBUG_THROTTLE(1.0,
+                                           "UVINS original time alignment enabled; skip image-driven UWB alignment image_t: %.9f",
+                                           image_timestamp);
                     }
                     else
                     {
-                        ROS_DEBUG_THROTTLE(1.0,
-                                           "UVINS UWB pipeline waiting for 4 UWB triplets or valid interpolation image_t: %.9f triplet_buffer_size: %lu",
-                                           image_timestamp,
-                                           static_cast<unsigned long>(uwb_triplet_manager.tripletBufferSize()));
+                        UWBTriplet aligned_triplet;
+                        if (uwb_triplet_manager.processUWBAt(image_timestamp, aligned_triplet))
+                        {
+                            aligned_uwb_measurements.reserve(3);
+                            for (int anchor_id = 0; anchor_id < 3; ++anchor_id)
+                            {
+                                UWBMeasurement aligned_measurement;
+                                aligned_measurement.timestamp = image_timestamp;
+                                aligned_measurement.anchor_id = anchor_id;
+                                aligned_measurement.range = aligned_triplet.ranges[anchor_id];
+                                aligned_uwb_measurements.push_back(aligned_measurement);
+                            }
+                            ROS_INFO_THROTTLE(1.0,
+                                              "UVINS UWB aligned image_t: %.9f D0: %.3f D1: %.3f D2: %.3f method: cubic",
+                                              image_timestamp,
+                                              aligned_triplet.ranges[0],
+                                              aligned_triplet.ranges[1],
+                                              aligned_triplet.ranges[2]);
+                        }
+                        else
+                        {
+                            ROS_DEBUG_THROTTLE(1.0,
+                                               "UVINS UWB pipeline waiting for 4 UWB triplets or valid interpolation image_t: %.9f triplet_buffer_size: %lu",
+                                               image_timestamp,
+                                               static_cast<unsigned long>(uwb_triplet_manager.tripletBufferSize()));
+                        }
                     }
                 }
                 else
@@ -539,7 +571,7 @@ int main(int argc, char **argv)
         uwb_triplet_manager.setMeanFilterWindowSize(UWB_MEAN_FILTER_WINDOW_SIZE);
         uwb_triplet_manager.setInterpolationWindowSize(UWB_INTERP_WINDOW_SIZE);
         uwb_triplet_manager.setInterpolationMaxGap(UWB_INTERP_MAX_GAP);
-        uwb_triplet_manager.setInterpolationTimeTolerance(0.15);
+        uwb_triplet_manager.setInterpolationTimeTolerance(UWB_INTERP_TIME_TOLERANCE);
         sub_uwb = n.subscribe(UWB_TOPIC, 2000, uwb_callback);
         ROS_INFO_STREAM("subscribe UWB topic: " << UWB_TOPIC);
     }

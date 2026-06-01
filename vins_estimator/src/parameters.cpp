@@ -27,6 +27,8 @@ double UWB_NOISE = 0.1;
 double UWB_MAX_INTERVAL = 0.05;
 int USE_UWB_INTERPOLATION = 1;
 double UWB_INTERP_MAX_GAP = 0.2;
+double UWB_INTERP_TIME_TOLERANCE = 0.25;
+int USE_UVINS_ORIGINAL_TIME_ALIGNMENT = 1;
 int USE_UVINS_UWB_PIPELINE = 1;
 double UWB_MIN_RANGE = 0.2;
 int UWB_MEAN_FILTER_WINDOW_SIZE = 4;
@@ -93,6 +95,8 @@ void readParameters(ros::NodeHandle &n)
     UWB_MAX_INTERVAL = 0.05;
     USE_UWB_INTERPOLATION = 1;
     UWB_INTERP_MAX_GAP = 0.2;
+    UWB_INTERP_TIME_TOLERANCE = 0.25;
+    USE_UVINS_ORIGINAL_TIME_ALIGNMENT = 1;
     USE_UVINS_UWB_PIPELINE = 1;
     UWB_MIN_RANGE = 0.2;
     UWB_MEAN_FILTER_WINDOW_SIZE = 4;
@@ -136,6 +140,10 @@ void readParameters(ros::NodeHandle &n)
         USE_UWB_INTERPOLATION = static_cast<int>(fsSettings["use_uwb_interpolation"]);
     if (!fsSettings["uwb_interp_max_gap"].empty())
         UWB_INTERP_MAX_GAP = static_cast<double>(fsSettings["uwb_interp_max_gap"]);
+    if (!fsSettings["uwb_interp_time_tolerance"].empty())
+        fsSettings["uwb_interp_time_tolerance"] >> UWB_INTERP_TIME_TOLERANCE;
+    if (!fsSettings["use_uvins_original_time_alignment"].empty())
+        USE_UVINS_ORIGINAL_TIME_ALIGNMENT = static_cast<int>(fsSettings["use_uvins_original_time_alignment"]);
     if (!fsSettings["use_uvins_uwb_pipeline"].empty())
         USE_UVINS_UWB_PIPELINE = static_cast<int>(fsSettings["use_uvins_uwb_pipeline"]);
     if (!fsSettings["uwb_min_range"].empty())
@@ -274,7 +282,11 @@ void readParameters(ros::NodeHandle &n)
     {
         ROS_INFO_STREAM("UWB_TOPIC: " << UWB_TOPIC);
         ROS_INFO("UWB_NOISE: %f UWB_MAX_INTERVAL: %f", UWB_NOISE, UWB_MAX_INTERVAL);
-        ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f", USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP);
+        ROS_INFO("USE_UWB_INTERPOLATION: %d UWB_INTERP_MAX_GAP: %f UWB_INTERP_TIME_TOLERANCE: %f",
+                 USE_UWB_INTERPOLATION, UWB_INTERP_MAX_GAP, UWB_INTERP_TIME_TOLERANCE);
+        ROS_INFO("USE_UVINS_ORIGINAL_TIME_ALIGNMENT: %d", USE_UVINS_ORIGINAL_TIME_ALIGNMENT);
+        if (USE_UVINS_ORIGINAL_TIME_ALIGNMENT)
+            ROS_INFO("UVINS original time alignment enabled");
         ROS_INFO("USE_UVINS_UWB_PIPELINE: %d UWB_MIN_RANGE: %f UWB_MEAN_FILTER_WINDOW_SIZE: %d UWB_INTERP_WINDOW_SIZE: %d",
                  USE_UVINS_UWB_PIPELINE, UWB_MIN_RANGE,
                  UWB_MEAN_FILTER_WINDOW_SIZE, UWB_INTERP_WINDOW_SIZE);

@@ -28,7 +28,9 @@ uwb_topic: "/uwb/range"
 uwb_noise: 0.1
 uwb_max_interval: 0.3
 use_uwb_interpolation: 1
-uwb_interp_max_gap: 1.0
+uwb_interp_max_gap: 1.2
+uwb_interp_time_tolerance: 0.25
+use_uvins_original_time_alignment: 1
 use_uvins_uwb_pipeline: 1
 uwb_min_range: 0.2
 uwb_mean_filter_window_size: 4
@@ -44,14 +46,14 @@ use_uvins_corrected_output: 1
 uvins_correction_max_norm: 2.0
 uvins_correction_max_final_cost: 100.0
 uvins_correction_max_delta_norm: 0.8
-uvins_corrected_output_smoothing_alpha: 0.8
-uvins_corrected_output_max_delta_norm: 0.10
+uvins_corrected_output_smoothing_alpha: 0.75
+uvins_corrected_output_max_delta_norm: 0.12
 uvins_corrected_output_max_reuse_time: 3.0
 uvins_correction_max_abs_z: 0.5
 uvins_corrected_output_damp_z: 0.5
-uvins_uwb_residual_weight: 1.0
-uvins_vio_residual_weight: 5.0
-uvins_smooth_residual_weight: 20.0
+uvins_uwb_residual_weight: 1.8
+uvins_vio_residual_weight: 4.0
+uvins_smooth_residual_weight: 15.0
 
 # UVINS official anchors from uwb.yaml
 uwb_anchor_positions:

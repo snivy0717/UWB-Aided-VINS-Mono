@@ -39,6 +39,8 @@ extern double UWB_NOISE;
 extern double UWB_MAX_INTERVAL;
 extern int USE_UWB_INTERPOLATION;
 extern double UWB_INTERP_MAX_GAP;
+extern double UWB_INTERP_TIME_TOLERANCE;
+extern int USE_UVINS_ORIGINAL_TIME_ALIGNMENT;
 extern int USE_UVINS_UWB_PIPELINE;
 extern double UWB_MIN_RANGE;
 extern int UWB_MEAN_FILTER_WINDOW_SIZE;

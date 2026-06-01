@@ -65,6 +65,7 @@ class UWBTripletManager
                              UWBTriplet *accepted_triplet = nullptr,
                              UWBTriplet *filtered_triplet = nullptr);
     bool processUWBAt(double vio_time, UWBTriplet &aligned_triplet) const;
+    bool processUWBAtUVINSOriginal(double vio_time, UWBTriplet &aligned_triplet) const;
     size_t tripletBufferSize() const;
     size_t partialBufferSize() const;
 
@@ -85,6 +86,9 @@ class UWBTripletManager
     bool interpolateCubic(const std::array<Eigen::Vector2d, 4> &samples,
                           double query_time,
                           double &value) const;
+    bool interpolateCubicUVINSOriginal(const std::array<Eigen::Vector2d, 4> &samples,
+                                       double query_time,
+                                       double &value) const;
     void pruneOldPartials(double latest_timestamp);
 
     mutable std::mutex mutex_;

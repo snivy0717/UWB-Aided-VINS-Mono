@@ -3,30 +3,40 @@
 #include <cmath>
 #include <limits>
 
+// 设置最近邻时间匹配阈值。
+// 如果某条 UWB 测距与图像帧时间差超过 max_interval_，则认为不能直接匹配。
 void UWBManager::setMaxInterval(double max_interval)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     max_interval_ = max_interval > 0.0 ? max_interval : 0.05;
 }
 
+// 设置线性插值允许的最大时间间隔。
+// 如果某个 anchor 的前后两条 UWB 测距间隔过大，则不进行插值。
 void UWBManager::setInterpolationMaxGap(double max_gap)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     interpolation_max_gap_ = max_gap > 0.0 ? max_gap : 0.2;
 }
 
+// 设置 UWB buffer 的保留时间长度。
+// 超过该时间范围的旧 UWB 测距会被删除。
 void UWBManager::setBufferDuration(double buffer_duration)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     buffer_duration_ = buffer_duration > 0.0 ? buffer_duration : 5.0;
 }
 
+// 清空 UWB 测距缓存。
+// 通常在系统重启或 estimator reset 时调用。
 void UWBManager::clear()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     buffer_.clear();
 }
 
+// 添加一条新的 UWB 测距到 buffer。
+// 添加后会删除过旧的测距，避免 buffer 无限增长。
 void UWBManager::addMeasurement(const UWBMeasurement &measurement)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -34,6 +44,9 @@ void UWBManager::addMeasurement(const UWBMeasurement &measurement)
     pruneOldMeasurements(measurement.timestamp);
 }
 
+// 根据指定时间戳查找附近的 UWB 测距。
+// 对每个 anchor，只保留时间差最小的一条测距。
+// 如果时间差超过 max_interval_，则该测距不会被使用。
 std::vector<UWBMeasurement> UWBManager::getMeasurementsNear(double timestamp) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -63,6 +76,12 @@ std::vector<UWBMeasurement> UWBManager::getMeasurementsNear(double timestamp) co
     return result;
 }
 
+// 将 UWB 测距线性插值到指定时间戳。
+// 对每个 anchor：
+//   1. 如果附近有直接可用的测距，则直接使用；
+//   2. 如果没有直接测距，则寻找该 anchor 前后两条测距；
+//   3. 若前后测距时间间隔合理，则进行线性插值。
+// 返回的 measurements 时间戳会被统一设置为目标 timestamp。
 bool UWBManager::getInterpolatedMeasurementsAt(double timestamp, std::vector<UWBMeasurement> &measurements) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -137,6 +156,8 @@ size_t UWBManager::size() const
     return buffer_.size();
 }
 
+// 查找 buffer 中离目标时间最近的一条 UWB 测距。
+// 主要用于调试，例如判断为什么某一帧没有匹配到 UWB 数据。
 bool UWBManager::getNearestMeasurement(double timestamp, UWBMeasurement &measurement, double &dt) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -160,6 +181,8 @@ bool UWBManager::getNearestMeasurement(double timestamp, UWBMeasurement &measure
     return true;
 }
 
+// 删除过旧的 UWB 测距。
+// 只保留 latest_timestamp 往前 buffer_duration_ 秒以内的数据。
 void UWBManager::pruneOldMeasurements(double latest_timestamp)
 {
     const double oldest_timestamp = latest_timestamp - buffer_duration_;

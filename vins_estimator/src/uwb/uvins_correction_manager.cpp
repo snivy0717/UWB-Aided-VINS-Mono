@@ -8,6 +8,30 @@
 
 namespace
 {
+/*
+ * UWB 测距残差。
+ *
+ * 物理意义：
+ *   加上 dP 后的 tag 位置，应该能够解释 UWB 实测距离。
+ *
+ * 修正后的 tag 位置：
+ *
+ *   p_tag = vio_p + dP + vio_q * p_uwb_imu
+ *
+ * 其中：
+ *   vio_p     : VINS-Mono 原始位置；
+ *   dP        : 当前优化的位置修正量；
+ *   vio_q     : VINS-Mono 原始姿态；
+ *   p_uwb_imu : UWB tag 相对于 IMU 的外参。
+ *
+ * 对第 i 个 anchor：
+ *
+ *   predicted_range_i = || p_tag - anchor_i ||
+ *   range_residual_i  = predicted_range_i - measured_range_i
+ *
+ * 作用：
+ *   让修正后的轨迹尽量符合 UWB 测距。
+ */
 struct UWBErr
 {
     UWBErr(const Eigen::Vector3d &vio_p,
@@ -53,6 +77,20 @@ struct UWBErr
     double sqrt_weight_;
 };
 
+/*
+ * VIO 先验残差。
+ *
+ * 物理意义：
+ *   VINS-Mono 原始轨迹仍然具有一定可信度，
+ *   因此 UWB 修正量 dP 不能无限变大。
+ *
+ * 该残差直接惩罚 dP 的大小：
+ *
+ *   residual ≈ dP^T * information * dP
+ *
+ * 作用：
+ *   防止 UWB 异常测距把轨迹强行拉飞。
+ */
 struct VIOErr
 {
     VIOErr(const Eigen::Matrix3d &information, double weight)
@@ -77,6 +115,27 @@ struct VIOErr
     double sqrt_weight_;
 };
 
+/*
+ * 平滑残差。
+ *
+ * 物理意义：
+ *   相邻两帧的修正轨迹应该连续，不能突然跳变。
+ *
+ * 当前帧修正后位置：
+ *
+ *   p_i_corrected = vio_p_i + dP_i
+ *
+ * 上一帧修正后位置：
+ *
+ *   p_{i-1}_corrected = vio_p_{i-1} + dP_{i-1}
+ *
+ * 平滑误差：
+ *
+ *   smooth_err = (vio_p_i - vio_p_{i-1}) + dP_i - dP_{i-1}
+ *
+ * 作用：
+ *   抑制 dP 在时间上的突变，让修正轨迹更平滑。
+ */
 struct SmoothErr
 {
     SmoothErr(const Eigen::Matrix3d &information,
@@ -117,6 +176,9 @@ UVINSCorrectionManager::UVINSCorrectionManager()
     clear();
 }
 
+// 清空整个 UVINS correction 窗口。
+// 系统初始化、重启或 estimator reset 时调用。
+// 会重置 UWB 测距、dP、VIO 位姿、时间戳、协方差以及上次优化状态。
 void UVINSCorrectionManager::clear()
 {
     for (int i = 0; i < UVINS_OPT_WINDOW_SIZE; ++i)
@@ -135,11 +197,14 @@ void UVINSCorrectionManager::clear()
     first_time_ = 0.0;
 }
 
+// 判断 correction 窗口是否已经填满。
+// 当最后一个窗口位置有有效 UWB 数据时，认为窗口可以开始优化。
 bool UVINSCorrectionManager::isWindowReady() const
 {
     return !Us[UVINS_OPT_WINDOW_SIZE - 1].isZero();
 }
 
+// 统计当前 correction 窗口中有效 UWBTriplet 的数量。
 int UVINSCorrectionManager::validCount() const
 {
     int count = 0;
@@ -151,11 +216,24 @@ int UVINSCorrectionManager::validCount() const
     return count;
 }
 
+// 判断上一次 Ceres 优化是否成功。
 bool UVINSCorrectionManager::hasLastOptimization() const
 {
     return last_optimization_success;
 }
 
+// 向 correction 滑动窗口中插入一帧新的 UWB / VIO 同步数据。
+//
+// 输入：
+//   timestamp          : 当前图像帧时间；
+//   aligned_uwb_ranges : 插值到图像时间的三基站 UWB 测距 [D0, D1, D2]；
+//   vio_p              : VINS-Mono 当前原始位置；
+//   vio_q              : VINS-Mono 当前原始姿态；
+//   init_dP            : 当前帧 dP 初值；
+//   cov                : 当前帧位置协方差或权重矩阵。
+//
+// 如果窗口未满，则插入到下一个位置；
+// 如果窗口已满，则先左移窗口，丢弃最老数据，再插入最新帧。
 void UVINSCorrectionManager::updateState(double timestamp,
                                          const Eigen::Vector3d &aligned_uwb_ranges,
                                          const Eigen::Vector3d &vio_p,
@@ -184,6 +262,26 @@ void UVINSCorrectionManager::updateState(double timestamp,
     Ps_cov[insert_index] = cov;
 }
 
+// 在当前 correction 窗口中优化 dP 序列。
+//
+// 优化变量：
+//   dPs[0], dPs[1], ..., dPs[UVINS_OPT_WINDOW_SIZE - 1]
+//
+// 残差项：
+//   1. UWBErr
+//      约束修正后的位置符合 UWB 三基站测距；
+//
+//   2. VIOErr
+//      约束 dP 不要过大，防止过度偏离 VINS-Mono 原始轨迹；
+//
+//   3. SmoothErr
+//      约束相邻帧修正后轨迹连续，抑制跳变。
+//
+// 优化后：
+//   取窗口最后一帧的 dP 作为当前时刻的 correction_out。
+//
+// 注意：
+//   这里优化的是外部 dP，不会写回 VINS-Mono 内部 Ps/Rs/Vs/Bas/Bgs。
 bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
                                                 double &final_cost_out,
                                                 int &valid_count_out)
@@ -263,6 +361,16 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
     return last_optimization_success;
 }
 
+// 获取最新窗口帧的诊断信息。
+// 主要用于日志输出和 uvins_correction_debug.csv。
+//
+// 输出内容包括：
+//   1. 当前帧时间戳；
+//   2. UWB 实测距离；
+//   3. 根据修正后位置预测的 UWB 距离；
+//   4. UWB 测距残差；
+//   5. 原始 VIO 位置；
+//   6. 修正后位置。
 bool UVINSCorrectionManager::getLastFrameDiagnostics(const Eigen::Vector3d &correction,
                                                      double &timestamp,
                                                      Eigen::Vector3d &measured_ranges,
@@ -283,6 +391,8 @@ bool UVINSCorrectionManager::getLastFrameDiagnostics(const Eigen::Vector3d &corr
     return true;
 }
 
+// 从窗口末尾向前查找最后一个有效 UWB 数据的位置。
+// 如果窗口为空，则返回 -1。
 int UVINSCorrectionManager::lastValidIndex() const
 {
     for (int i = UVINS_OPT_WINDOW_SIZE - 1; i >= 0; --i)
@@ -293,6 +403,15 @@ int UVINSCorrectionManager::lastValidIndex() const
     return -1;
 }
 
+// 计算 UWB 测距对 tag 位置的雅可比矩阵。
+//
+// 对每个 anchor：
+//   range = || position - anchor ||
+//
+// 其对 position 的导数为：
+//   (position - anchor) / range
+//
+// 也就是从 anchor 指向 tag 的单位方向向量。
 bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position, Eigen::Matrix3d &jacobian) const
 {
     if (UWB_ANCHOR_POSITIONS.size() != 3)
@@ -309,6 +428,12 @@ bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position, Ei
     return true;
 }
 
+// 根据指定 correction dP 预测某个窗口帧的三基站 UWB 距离。
+//
+// 修正后的 tag 位置：
+//   p_tag = Vps[index] + correction + Vqs[index] * P_UWB_IMU
+//
+// 然后分别计算 p_tag 到三个 anchor 的距离。
 bool UVINSCorrectionManager::predictRanges(int index, const Eigen::Vector3d &correction, Eigen::Vector3d &predicted_ranges) const
 {
     if (index < 0 || index >= UVINS_OPT_WINDOW_SIZE || UWB_ANCHOR_POSITIONS.size() != 3)
@@ -324,6 +449,12 @@ bool UVINSCorrectionManager::predictRanges(int index, const Eigen::Vector3d &cor
     return true;
 }
 
+// 对 3x3 矩阵进行带正则化的安全求逆。
+//
+// 为了避免矩阵奇异或病态，先加一个很小的对角项：
+//   matrix + 1e-6 * I
+//
+// 如果行列式过小或结果不是有限数，则返回 false。
 bool UVINSCorrectionManager::invertWithRegularization(const Eigen::Matrix3d &matrix, Eigen::Matrix3d &inverse) const
 {
     Eigen::Matrix3d regularized = matrix;
@@ -335,6 +466,11 @@ bool UVINSCorrectionManager::invertWithRegularization(const Eigen::Matrix3d &mat
     return inverse.allFinite();
 }
 
+// 检查 correction 窗口是否完整且数值有效。
+//
+// 要求：
+//   1. 窗口内有效帧数量等于 UVINS_OPT_WINDOW_SIZE；
+//   2. UWB 测距、VIO 位置、dP、协方差矩阵都不是 NaN 或 Inf。
 bool UVINSCorrectionManager::hasValidWindow() const
 {
     if (validCount() != UVINS_OPT_WINDOW_SIZE)
@@ -351,6 +487,12 @@ bool UVINSCorrectionManager::hasValidWindow() const
     return true;
 }
 
+// 滑动窗口左移一格。
+//
+// 作用：
+//   1. 丢弃最老的一帧；
+//   2. 其余帧依次前移；
+//   3. 最后一个位置清空，用于接收新的 UWB / VIO 数据。
 void UVINSCorrectionManager::shiftLeft()
 {
     for (int i = 0; i < UVINS_OPT_WINDOW_SIZE - 1; ++i)

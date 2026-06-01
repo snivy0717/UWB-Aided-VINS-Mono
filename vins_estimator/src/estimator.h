@@ -41,6 +41,19 @@ class Estimator
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
     void inputUWB(double timestamp, const std::vector<UWBMeasurement> &measurements);
+    bool processUVINSAlignedCorrection(double timestamp,
+                                       const Vector3d &aligned_uwb_ranges,
+                                       const Vector3d &vio_p,
+                                       const Quaterniond &vio_q,
+                                       bool update_before_correct_detection = false);
+    bool handleUVINSCorrectionResult(double timestamp,
+                                     const Vector3d &aligned_uwb_ranges,
+                                     const Vector3d &vio_p,
+                                     const Quaterniond &vio_q,
+                                     const Vector3d &correction,
+                                     double final_cost,
+                                     int valid_count,
+                                     bool optimization_success);
     void processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header);
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 

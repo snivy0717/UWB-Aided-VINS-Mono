@@ -224,6 +224,76 @@ bool UWBTripletManager::processUWBAt(double vio_time, UWBTriplet &aligned_triple
     return isValidTriplet(aligned_triplet.ranges);
 }
 
+bool UWBTripletManager::processUWBAtUVINSOriginal(double vio_time, UWBTriplet &aligned_triplet) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    const double query_time = first_time_initialized_ ? vio_time - first_time_ : 0.0;
+    const double unavailable_time = std::numeric_limits<double>::quiet_NaN();
+    const double t0 = uwb_buffer_.size() > 0 ? uwb_buffer_[0].timestamp : unavailable_time;
+    const double t1 = uwb_buffer_.size() > 1 ? uwb_buffer_[1].timestamp : unavailable_time;
+    const double t2 = uwb_buffer_.size() > 2 ? uwb_buffer_[2].timestamp : unavailable_time;
+    const double t3 = uwb_buffer_.size() > 3 ? uwb_buffer_[3].timestamp : unavailable_time;
+
+    if (!first_time_initialized_ || uwb_buffer_.size() != 4)
+    {
+        ROS_DEBUG_THROTTLE(1.0,
+                           "UVINS original interpolation waiting vio_time: %.9f query_time: %.9f buffer_size: %lu sample_t: [%.9f %.9f %.9f %.9f]",
+                           vio_time,
+                           query_time,
+                           static_cast<unsigned long>(uwb_buffer_.size()),
+                           t0,
+                           t1,
+                           t2,
+                           t3);
+        return false;
+    }
+
+    std::array<Eigen::Vector2d, 4> d0;
+    std::array<Eigen::Vector2d, 4> d1;
+    std::array<Eigen::Vector2d, 4> d2;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        d0[i] = Eigen::Vector2d(uwb_buffer_[i].timestamp, uwb_buffer_[i].ranges[0]);
+        d1[i] = Eigen::Vector2d(uwb_buffer_[i].timestamp, uwb_buffer_[i].ranges[1]);
+        d2[i] = Eigen::Vector2d(uwb_buffer_[i].timestamp, uwb_buffer_[i].ranges[2]);
+    }
+
+    double range0 = 0.0;
+    double range1 = 0.0;
+    double range2 = 0.0;
+    if (!interpolateCubicUVINSOriginal(d0, query_time, range0) ||
+        !interpolateCubicUVINSOriginal(d1, query_time, range1) ||
+        !interpolateCubicUVINSOriginal(d2, query_time, range2))
+    {
+        ROS_WARN_THROTTLE(1.0,
+                          "UVINS original interpolation skipped vio_time: %.9f query_time: %.9f sample_t: [%.9f %.9f %.9f %.9f] reason: non-finite interpolation",
+                          vio_time,
+                          query_time,
+                          t0,
+                          t1,
+                          t2,
+                          t3);
+        return false;
+    }
+
+    aligned_triplet.timestamp = vio_time;
+    aligned_triplet.ranges << range0, range1, range2;
+    ROS_INFO_THROTTLE(1.0,
+                      "UVINS original UWB aligned: vio_time: %.9f query_time: %.9f sample_t: [%.9f %.9f %.9f %.9f] D0/D1/D2: %.3f %.3f %.3f",
+                      vio_time,
+                      query_time,
+                      t0,
+                      t1,
+                      t2,
+                      t3,
+                      aligned_triplet.ranges[0],
+                      aligned_triplet.ranges[1],
+                      aligned_triplet.ranges[2]);
+    return true;
+}
+
 size_t UWBTripletManager::tripletBufferSize() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -393,6 +463,44 @@ bool UWBTripletManager::interpolateCubic(const std::array<Eigen::Vector2d, 4> &s
             para[3];
 
     return ::isfinite(value) && value > uwb_min_range_ && value <= uwb_max_range_;
+}
+
+bool UWBTripletManager::interpolateCubicUVINSOriginal(const std::array<Eigen::Vector2d, 4> &samples,
+                                                      double query_time,
+                                                      double &value) const
+{
+    for (int i = 1; i < 4; ++i)
+    {
+        if (!(samples[i][0] > samples[i - 1][0]))
+            return false;
+    }
+
+    if (!::isfinite(query_time))
+        return false;
+
+    Eigen::Matrix4d align_matrix;
+    Eigen::Vector4d align_vector;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const double t = samples[i][0];
+        align_matrix(i, 0) = t * t * t;
+        align_matrix(i, 1) = t * t;
+        align_matrix(i, 2) = t;
+        align_matrix(i, 3) = 1.0;
+        align_vector[i] = samples[i][1];
+    }
+
+    if (std::fabs(align_matrix.determinant()) < 1e-12)
+        return false;
+
+    const Eigen::Vector4d para = align_matrix.inverse() * align_vector;
+    value = para[0] * query_time * query_time * query_time +
+            para[1] * query_time * query_time +
+            para[2] * query_time +
+            para[3];
+
+    return ::isfinite(value);
 }
 
 // 删除长时间没有组装完成的 PendingTriplet。
