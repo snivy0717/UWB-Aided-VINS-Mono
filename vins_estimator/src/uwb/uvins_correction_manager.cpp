@@ -77,6 +77,61 @@ struct UWBErr
     double sqrt_weight_;
 };
 
+struct UWBErrVector
+{
+    UWBErrVector(const Eigen::Vector3d &vio_p,
+                 const Eigen::Quaterniond &vio_q,
+                 const Eigen::Vector3d &p_uwb_imu,
+                 const std::vector<Eigen::Vector3d> &anchors,
+                 const Eigen::Vector3d &ranges,
+                 const Eigen::Matrix3d &information,
+                 double weight)
+        : vio_p_(vio_p), tag_offset_(vio_q * p_uwb_imu),
+          anchors_(anchors), ranges_(ranges), sqrt_weight_(std::sqrt(std::max(weight, 0.0)))
+    {
+        Eigen::LLT<Eigen::Matrix3d> llt(information);
+        if (llt.info() == Eigen::Success)
+        {
+            sqrt_information_ = llt.matrixL().transpose();
+            if (sqrt_information_.allFinite())
+                return;
+        }
+
+        sqrt_information_.setZero();
+        for (int i = 0; i < 3; ++i)
+            sqrt_information_(i, i) = std::sqrt(std::max(information(i, i), 0.0));
+    }
+
+    template <typename T>
+    bool operator()(const T *const dP, T *residual) const
+    {
+        T dis_err[3];
+        for (int i = 0; i < 3; ++i)
+        {
+            const T dx = T(vio_p_.x() + tag_offset_.x()) + dP[0] - T(anchors_[i].x());
+            const T dy = T(vio_p_.y() + tag_offset_.y()) + dP[1] - T(anchors_[i].y());
+            const T dz = T(vio_p_.z() + tag_offset_.z()) + dP[2] - T(anchors_[i].z());
+            dis_err[i] = ceres::sqrt(dx * dx + dy * dy + dz * dz) - T(ranges_[i]);
+        }
+
+        for (int r = 0; r < 3; ++r)
+        {
+            residual[r] = T(0.0);
+            for (int c = 0; c < 3; ++c)
+                residual[r] += T(sqrt_information_(r, c)) * dis_err[c];
+            residual[r] *= T(sqrt_weight_);
+        }
+        return true;
+    }
+
+    Eigen::Vector3d vio_p_;
+    Eigen::Vector3d tag_offset_;
+    std::vector<Eigen::Vector3d> anchors_;
+    Eigen::Vector3d ranges_;
+    Eigen::Matrix3d sqrt_information_;
+    double sqrt_weight_;
+};
+
 /*
  * VIO 先验残差。
  *
@@ -294,6 +349,11 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
     if (!hasValidWindow() || UWB_ANCHOR_POSITIONS.size() != 3)
         return false;
 
+    const std::vector<Eigen::Vector3d> anchors_for_residual = anchorsForResidual();
+    if (anchors_for_residual.size() != 3)
+        return false;
+    logAnchorAlignmentOnce(anchors_for_residual);
+
     ceres::Problem problem;
     for (int i = 0; i < UVINS_OPT_WINDOW_SIZE; ++i)
         problem.AddParameterBlock(dPs[i].data(), 3);
@@ -307,7 +367,7 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
 
         Eigen::Matrix3d h_jacobian;
         const Eigen::Vector3d jacobian_position = Vps[i] + dPs[i] + Vqs[i] * P_UWB_IMU;
-        if (!computeJacobian(jacobian_position, h_jacobian))
+        if (!computeJacobian(jacobian_position, anchors_for_residual, h_jacobian))
             return false;
 
         Eigen::Matrix3d p_uwb = h_jacobian * h_jacobian * p_vio;
@@ -316,10 +376,19 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
             return false;
 
         ceres::LossFunction *uwb_loss = new ceres::HuberLoss(0.15);
-        ceres::CostFunction *uwb_cost =
-            new ceres::AutoDiffCostFunction<UWBErr, 1, 3>(
-                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, UWB_ANCHOR_POSITIONS, Us[i],
+        ceres::CostFunction *uwb_cost = nullptr;
+        if (USE_UVINS_VECTOR_UWB_RESIDUAL == 1)
+        {
+            uwb_cost = new ceres::AutoDiffCostFunction<UWBErrVector, 3, 3>(
+                new UWBErrVector(Vps[i], Vqs[i], P_UWB_IMU, anchors_for_residual, Us[i],
+                                 p_uwb_inv, UVINS_UWB_RESIDUAL_WEIGHT));
+        }
+        else
+        {
+            uwb_cost = new ceres::AutoDiffCostFunction<UWBErr, 1, 3>(
+                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, anchors_for_residual, Us[i],
                            p_uwb_inv, UVINS_UWB_RESIDUAL_WEIGHT));
+        }
         problem.AddResidualBlock(uwb_cost, uwb_loss, dPs[i].data());
 
         ceres::LossFunction *vio_loss = new ceres::HuberLoss(0.15);
@@ -403,6 +472,46 @@ int UVINSCorrectionManager::lastValidIndex() const
     return -1;
 }
 
+std::vector<Eigen::Vector3d> UVINSCorrectionManager::anchorsForResidual() const
+{
+    std::vector<Eigen::Vector3d> anchors_for_residual = UWB_ANCHOR_POSITIONS;
+    if (UWB_WORLD_ALIGNED != 1)
+        return anchors_for_residual;
+
+    const double cos_yaw = std::cos(UWB_WORLD_TO_VINS_YAW);
+    const double sin_yaw = std::sin(UWB_WORLD_TO_VINS_YAW);
+    Eigen::Matrix3d R_yaw = Eigen::Matrix3d::Identity();
+    R_yaw(0, 0) = cos_yaw;
+    R_yaw(0, 1) = -sin_yaw;
+    R_yaw(1, 0) = sin_yaw;
+    R_yaw(1, 1) = cos_yaw;
+
+    for (auto &anchor : anchors_for_residual)
+        anchor = R_yaw * anchor + UWB_WORLD_TO_VINS_TRANSLATION;
+
+    return anchors_for_residual;
+}
+
+void UVINSCorrectionManager::logAnchorAlignmentOnce(const std::vector<Eigen::Vector3d> &anchors_for_residual) const
+{
+    static bool logged = false;
+    if (logged)
+        return;
+    logged = true;
+
+    ROS_INFO("UVINS UWB anchor residual frame UWB_WORLD_ALIGNED: %d", UWB_WORLD_ALIGNED);
+    ROS_INFO("UVINS UWB anchor residual frame UWB_WORLD_TO_VINS_YAW: %.12f", UWB_WORLD_TO_VINS_YAW);
+    ROS_INFO_STREAM("UVINS UWB anchor residual frame UWB_WORLD_TO_VINS_TRANSLATION: "
+                    << UWB_WORLD_TO_VINS_TRANSLATION.transpose());
+    for (int i = 0; i < 3 && i < static_cast<int>(UWB_ANCHOR_POSITIONS.size()) &&
+                    i < static_cast<int>(anchors_for_residual.size()); ++i)
+    {
+        ROS_INFO_STREAM("UVINS UWB anchor" << i
+                        << " raw: " << UWB_ANCHOR_POSITIONS[i].transpose()
+                        << " vins: " << anchors_for_residual[i].transpose());
+    }
+}
+
 // 计算 UWB 测距对 tag 位置的雅可比矩阵。
 //
 // 对每个 anchor：
@@ -412,14 +521,16 @@ int UVINSCorrectionManager::lastValidIndex() const
 //   (position - anchor) / range
 //
 // 也就是从 anchor 指向 tag 的单位方向向量。
-bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position, Eigen::Matrix3d &jacobian) const
+bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position,
+                                             const std::vector<Eigen::Vector3d> &anchors_for_residual,
+                                             Eigen::Matrix3d &jacobian) const
 {
-    if (UWB_ANCHOR_POSITIONS.size() != 3)
+    if (anchors_for_residual.size() != 3)
         return false;
 
     for (int i = 0; i < 3; ++i)
     {
-        const Eigen::Vector3d delta = position - UWB_ANCHOR_POSITIONS[i];
+        const Eigen::Vector3d delta = position - anchors_for_residual[i];
         const double distance = delta.norm();
         if (distance < 1e-6)
             return false;
@@ -439,10 +550,15 @@ bool UVINSCorrectionManager::predictRanges(int index, const Eigen::Vector3d &cor
     if (index < 0 || index >= UVINS_OPT_WINDOW_SIZE || UWB_ANCHOR_POSITIONS.size() != 3)
         return false;
 
+    const std::vector<Eigen::Vector3d> anchors_for_residual = anchorsForResidual();
+    if (anchors_for_residual.size() != 3)
+        return false;
+    logAnchorAlignmentOnce(anchors_for_residual);
+
     const Eigen::Vector3d tag_position = Vps[index] + correction + Vqs[index] * P_UWB_IMU;
     for (int i = 0; i < 3; ++i)
     {
-        predicted_ranges[i] = (tag_position - UWB_ANCHOR_POSITIONS[i]).norm();
+        predicted_ranges[i] = (tag_position - anchors_for_residual[i]).norm();
         if (!std::isfinite(predicted_ranges[i]))
             return false;
     }

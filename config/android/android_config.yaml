@@ -30,7 +30,7 @@ uwb_max_interval: 0.3
 use_uwb_interpolation: 1
 uwb_interp_max_gap: 1.2
 uwb_interp_time_tolerance: 0.25
-use_uvins_original_time_alignment: 1
+use_uvins_original_time_alignment: 0
 use_uvins_uwb_pipeline: 1
 uwb_min_range: 0.2
 uwb_mean_filter_window_size: 4
@@ -54,6 +54,7 @@ uvins_corrected_output_damp_z: 0.5
 uvins_uwb_residual_weight: 1.8
 uvins_vio_residual_weight: 4.0
 uvins_smooth_residual_weight: 15.0
+use_uvins_vector_uwb_residual: 0
 
 # UVINS official anchors from uwb.yaml
 uwb_anchor_positions:
@@ -64,11 +65,10 @@ uwb_anchor_positions:
 # UVINS official UWB-tag-to-IMU translation from uwb.yaml
 p_uwb_imu: [0.0, -0.06, 0.1]
 
-# Coordinate alignment flag.
-# Keep 0 for now: UWB world and VINS world are not explicitly aligned yet.
-uwb_world_aligned: 0
-uwb_world_to_vins_yaw: 0.0
-uwb_world_to_vins_translation: [0.0, 0.0, 0.0]
+# Coordinate alignment from UWB world to VINS world.
+uwb_world_aligned: 1
+uwb_world_to_vins_yaw: 0.021298074401
+uwb_world_to_vins_translation: [0.110411415337, 0.086733434138, -0.063732414491]
 
 #camera calibration from UVINS left.yaml
 model_type: PINHOLE

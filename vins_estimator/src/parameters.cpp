@@ -51,6 +51,7 @@ double UVINS_CORRECTED_OUTPUT_DAMP_Z = 0.5;
 double UVINS_UWB_RESIDUAL_WEIGHT = 1.0;
 double UVINS_VIO_RESIDUAL_WEIGHT = 5.0;
 double UVINS_SMOOTH_RESIDUAL_WEIGHT = 20.0;
+int USE_UVINS_VECTOR_UWB_RESIDUAL = 0;
 int USE_UVINS_CORRECTED_OUTPUT = 1;
 int UWB_WORLD_ALIGNED = 0;
 double UWB_WORLD_TO_VINS_YAW = 0.0;
@@ -119,6 +120,7 @@ void readParameters(ros::NodeHandle &n)
     UVINS_UWB_RESIDUAL_WEIGHT = 1.0;
     UVINS_VIO_RESIDUAL_WEIGHT = 5.0;
     UVINS_SMOOTH_RESIDUAL_WEIGHT = 20.0;
+    USE_UVINS_VECTOR_UWB_RESIDUAL = 0;
     USE_UVINS_CORRECTED_OUTPUT = 1;
     UWB_WORLD_ALIGNED = 0;
     UWB_WORLD_TO_VINS_YAW = 0.0;
@@ -188,6 +190,8 @@ void readParameters(ros::NodeHandle &n)
         UVINS_VIO_RESIDUAL_WEIGHT = static_cast<double>(fsSettings["uvins_vio_residual_weight"]);
     if (!fsSettings["uvins_smooth_residual_weight"].empty())
         UVINS_SMOOTH_RESIDUAL_WEIGHT = static_cast<double>(fsSettings["uvins_smooth_residual_weight"]);
+    if (!fsSettings["use_uvins_vector_uwb_residual"].empty())
+        USE_UVINS_VECTOR_UWB_RESIDUAL = static_cast<int>(fsSettings["use_uvins_vector_uwb_residual"]);
     if (!fsSettings["use_uvins_corrected_output"].empty())
         USE_UVINS_CORRECTED_OUTPUT = static_cast<int>(fsSettings["use_uvins_corrected_output"]);
     if (!fsSettings["uwb_world_aligned"].empty())
@@ -278,6 +282,7 @@ void readParameters(ros::NodeHandle &n)
     }
     ROS_INFO("UWB_FUSION_MODE: %d", UWB_FUSION_MODE);
     ROS_INFO("USE_UWB: %d", USE_UWB);
+    ROS_INFO("USE_UVINS_VECTOR_UWB_RESIDUAL: %d", USE_UVINS_VECTOR_UWB_RESIDUAL);
     if (USE_UWB)
     {
         ROS_INFO_STREAM("UWB_TOPIC: " << UWB_TOPIC);
