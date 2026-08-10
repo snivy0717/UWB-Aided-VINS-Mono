@@ -291,8 +291,13 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
     valid_count_out = validCount();
     last_optimization_success = false;
 
-    if (!hasValidWindow() || UWB_ANCHOR_POSITIONS.size() != 3)
+    if (!hasValidWindow())
         return false;
+
+    const std::vector<Eigen::Vector3d> anchors_for_residual = anchorsForResidual();
+    if (anchors_for_residual.size() != 3)
+        return false;
+    logAnchorAlignmentOnce(anchors_for_residual);
 
     ceres::Problem problem;
     for (int i = 0; i < UVINS_OPT_WINDOW_SIZE; ++i)
@@ -307,7 +312,7 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
 
         Eigen::Matrix3d h_jacobian;
         const Eigen::Vector3d jacobian_position = Vps[i] + dPs[i] + Vqs[i] * P_UWB_IMU;
-        if (!computeJacobian(jacobian_position, h_jacobian))
+        if (!computeJacobian(jacobian_position, anchors_for_residual, h_jacobian))
             return false;
 
         Eigen::Matrix3d p_uwb = h_jacobian * h_jacobian * p_vio;
@@ -318,7 +323,7 @@ bool UVINSCorrectionManager::optimizeCorrection(Eigen::Vector3d &correction_out,
         ceres::LossFunction *uwb_loss = new ceres::HuberLoss(0.15);
         ceres::CostFunction *uwb_cost =
             new ceres::AutoDiffCostFunction<UWBErr, 1, 3>(
-                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, UWB_ANCHOR_POSITIONS, Us[i],
+                new UWBErr(Vps[i], Vqs[i], P_UWB_IMU, anchors_for_residual, Us[i],
                            p_uwb_inv, UVINS_UWB_RESIDUAL_WEIGHT));
         problem.AddResidualBlock(uwb_cost, uwb_loss, dPs[i].data());
 
@@ -403,6 +408,45 @@ int UVINSCorrectionManager::lastValidIndex() const
     return -1;
 }
 
+std::vector<Eigen::Vector3d> UVINSCorrectionManager::anchorsForResidual() const
+{
+    std::vector<Eigen::Vector3d> anchors_for_residual = UWB_ANCHOR_POSITIONS;
+    if (UWB_WORLD_ALIGNED != 1)
+        return anchors_for_residual;
+
+    const double cos_yaw = std::cos(UWB_WORLD_TO_VINS_YAW);
+    const double sin_yaw = std::sin(UWB_WORLD_TO_VINS_YAW);
+    Eigen::Matrix3d R_yaw;
+    R_yaw << cos_yaw, -sin_yaw, 0.0,
+             sin_yaw,  cos_yaw, 0.0,
+             0.0,      0.0,     1.0;
+
+    for (Eigen::Vector3d &anchor : anchors_for_residual)
+        anchor = R_yaw * anchor + UWB_WORLD_TO_VINS_TRANSLATION;
+
+    return anchors_for_residual;
+}
+
+void UVINSCorrectionManager::logAnchorAlignmentOnce(const std::vector<Eigen::Vector3d> &anchors_for_residual) const
+{
+    static bool logged = false;
+    if (logged)
+        return;
+    logged = true;
+
+    ROS_INFO("UWB anchor alignment: UWB_WORLD_ALIGNED: %d", UWB_WORLD_ALIGNED);
+    ROS_INFO("UWB anchor alignment: UWB_WORLD_TO_VINS_YAW: %.12f", UWB_WORLD_TO_VINS_YAW);
+    ROS_INFO_STREAM("UWB anchor alignment: UWB_WORLD_TO_VINS_TRANSLATION: "
+                    << UWB_WORLD_TO_VINS_TRANSLATION.transpose());
+    const size_t anchor_count = std::min(UWB_ANCHOR_POSITIONS.size(), anchors_for_residual.size());
+    for (size_t i = 0; i < anchor_count; ++i)
+    {
+        ROS_INFO_STREAM("UWB anchor alignment: anchor" << i << " raw: "
+                        << UWB_ANCHOR_POSITIONS[i].transpose() << " vins: "
+                        << anchors_for_residual[i].transpose());
+    }
+}
+
 // 计算 UWB 测距对 tag 位置的雅可比矩阵。
 //
 // 对每个 anchor：
@@ -412,14 +456,16 @@ int UVINSCorrectionManager::lastValidIndex() const
 //   (position - anchor) / range
 //
 // 也就是从 anchor 指向 tag 的单位方向向量。
-bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position, Eigen::Matrix3d &jacobian) const
+bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position,
+                                             const std::vector<Eigen::Vector3d> &anchors_for_residual,
+                                             Eigen::Matrix3d &jacobian) const
 {
-    if (UWB_ANCHOR_POSITIONS.size() != 3)
+    if (anchors_for_residual.size() != 3)
         return false;
 
     for (int i = 0; i < 3; ++i)
     {
-        const Eigen::Vector3d delta = position - UWB_ANCHOR_POSITIONS[i];
+        const Eigen::Vector3d delta = position - anchors_for_residual[i];
         const double distance = delta.norm();
         if (distance < 1e-6)
             return false;
@@ -436,13 +482,18 @@ bool UVINSCorrectionManager::computeJacobian(const Eigen::Vector3d &position, Ei
 // 然后分别计算 p_tag 到三个 anchor 的距离。
 bool UVINSCorrectionManager::predictRanges(int index, const Eigen::Vector3d &correction, Eigen::Vector3d &predicted_ranges) const
 {
-    if (index < 0 || index >= UVINS_OPT_WINDOW_SIZE || UWB_ANCHOR_POSITIONS.size() != 3)
+    if (index < 0 || index >= UVINS_OPT_WINDOW_SIZE)
         return false;
+
+    const std::vector<Eigen::Vector3d> anchors_for_residual = anchorsForResidual();
+    if (anchors_for_residual.size() != 3)
+        return false;
+    logAnchorAlignmentOnce(anchors_for_residual);
 
     const Eigen::Vector3d tag_position = Vps[index] + correction + Vqs[index] * P_UWB_IMU;
     for (int i = 0; i < 3; ++i)
     {
-        predicted_ranges[i] = (tag_position - UWB_ANCHOR_POSITIONS[i]).norm();
+        predicted_ranges[i] = (tag_position - anchors_for_residual[i]).norm();
         if (!std::isfinite(predicted_ranges[i]))
             return false;
     }

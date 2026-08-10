@@ -60,6 +60,7 @@
 #pragma once
 
 #include <eigen3/Eigen/Dense>
+#include <vector>
 
 static const int UVINS_OPT_WINDOW_SIZE = 10;
 
@@ -102,7 +103,11 @@ class UVINSCorrectionManager
   private:
     int lastValidIndex() const;
     void shiftLeft();
-    bool computeJacobian(const Eigen::Vector3d &position, Eigen::Matrix3d &jacobian) const;
+    std::vector<Eigen::Vector3d> anchorsForResidual() const;
+    void logAnchorAlignmentOnce(const std::vector<Eigen::Vector3d> &anchors_for_residual) const;
+    bool computeJacobian(const Eigen::Vector3d &position,
+                         const std::vector<Eigen::Vector3d> &anchors_for_residual,
+                         Eigen::Matrix3d &jacobian) const;
     bool predictRanges(int index, const Eigen::Vector3d &correction, Eigen::Vector3d &predicted_ranges) const;
     bool invertWithRegularization(const Eigen::Matrix3d &matrix, Eigen::Matrix3d &inverse) const;
     bool hasValidWindow() const;
