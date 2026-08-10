@@ -65,10 +65,9 @@ uwb_anchor_positions:
 p_uwb_imu: [0.0, -0.06, 0.1]
 
 # Coordinate alignment flag.
-# Keep 0 for now: UWB world and VINS world are not explicitly aligned yet.
-uwb_world_aligned: 0
-uwb_world_to_vins_yaw: 0.0
-uwb_world_to_vins_translation: [0.0, 0.0, 0.0]
+uwb_world_aligned: 1
+uwb_world_to_vins_yaw: 0.021298074401
+uwb_world_to_vins_translation: [0.110411415337, 0.086733434138, -0.063732414491]
 
 #camera calibration from UVINS left.yaml
 model_type: PINHOLE
